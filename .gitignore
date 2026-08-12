@@ -1,0 +1,5 @@
+node_modules/
+dist/
+Logs/
+Config/settings.json
+*.log

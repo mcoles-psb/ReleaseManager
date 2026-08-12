@@ -1,0 +1,45 @@
+{
+  "name": "psbuniverse-release-manager",
+  "version": "1.0.0",
+  "description": "Internal Windows desktop application for promoting source code from PSBUniverse DEV to PSBUniverse PROD GitHub organizations.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "author": "PSBUniverse",
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "simple-git": "^3.27.0"
+  },
+  "build": {
+    "appId": "com.psbuniverse.release-manager",
+    "productName": "PSBUniverse Release Manager",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "Resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "pages/**/*",
+      "js/**/*",
+      "css/**/*",
+      "services/**/*",
+      "Config/**/*",
+      "Resources/**/*"
+    ]
+  }
+}

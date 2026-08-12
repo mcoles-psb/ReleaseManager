@@ -1,0 +1,90 @@
+<!-- Compare Page - Compare DEV vs PROD -->
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">Pending Production Commits</span>
+        <button class="btn btn-sm btn-secondary" onclick="refreshCompare()">Refresh</button>
+    </div>
+    <p class="text-muted mb-16">
+        Shows commits that are in <strong>DEV (origin)</strong> but not yet in <strong>PROD (prod)</strong>.
+    </p>
+
+    <div class="form-inline">
+        <div class="form-group">
+            <label class="form-label">Repository</label>
+            <select class="form-select" id="compare-repo-select">
+                <option value="">-- Select Repository --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Branch</label>
+            <select class="form-select" id="compare-branch-select">
+                <option value="">-- Select Branch --</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Summary Card -->
+    <div id="compare-summary-card" class="card mt-16 hidden">
+        <div class="card-header">
+            <h3 class="card-title">Deployment Summary</h3>
+        </div>
+        <div class="card-body">
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="summary-label">Repository</div>
+                    <div class="summary-value" id="summary-repo-name">-</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">Branch</div>
+                    <div class="summary-value" id="summary-branch">-</div>
+                </div>
+                <div class="summary-divider"></div>
+                <div class="summary-item">
+                    <div class="summary-label">DEV Latest</div>
+                    <div class="summary-value" id="summary-dev-commit">-</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">PROD Latest</div>
+                    <div class="summary-value" id="summary-prod-commit">-</div>
+                </div>
+                <div class="summary-divider"></div>
+                <div class="summary-item">
+                    <div class="summary-label">Pending Commits</div>
+                    <div class="summary-value" id="summary-commit-count">-</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">Changed Files</div>
+                    <div class="summary-value" id="summary-changed-files">-</div>
+                </div>
+                <div class="summary-item summary-status">
+                    <div class="summary-label">Status</div>
+                    <div class="summary-value" id="summary-status">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-wrapper mt-16">
+        <table class="data-table table-sm" id="compare-result-table">
+            <thead>
+                <tr>
+                    <th>Commit</th>
+                    <th>Author</th>
+                    <th>Date</th>
+                    <th>Message</th>
+                </tr>
+            </thead>
+            <tbody id="compare-result-body">
+                <tr>
+                    <td colspan="4" class="text-muted" style="text-align:center;padding:24px;">
+                        Select a repository and branch to compare.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div id="compare-summary" class="mt-8 hidden">
+        <p class="text-muted" id="compare-count"></p>
+    </div>
+</div>

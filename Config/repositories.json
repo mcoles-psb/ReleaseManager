@@ -1,0 +1,29 @@
+[
+  {
+    "name": "PSBUniverse-core",
+    "path": "GitHubPromotion/PSBUniverse-core.git",
+    "devRepo": "https://github.com/PSBUniverse-DEV/PSBUniverse-core.git",
+    "prodRepo": "https://github.com/PSBUniverse-PROD/PSBUniverse-core.git",
+    "defaultBranch": "main",
+    "enabled": true,
+    "status": "ready"
+  },
+  {
+    "name": "PSB_GutterApp",
+    "path": "GitHubPromotion/PSB_GutterApp.git",
+    "devRepo": "https://github.com/PSBUniverse-DEV/PSB_GutterApp.git",
+    "prodRepo": "https://github.com/PSBUniverse-PROD/PSB_GutterApp.git",
+    "defaultBranch": "main",
+    "enabled": true,
+    "status": "ready"
+  },
+  {
+    "name": "PSB_ProjectMap",
+    "path": "GitHubPromotion/PSB_ProjectMap.git",
+    "devRepo": "https://github.com/PSBUniverse-DEV/PSB_ProjectMap.git",
+    "prodRepo": "https://github.com/PSBUniverse-PROD/PSB_ProjectMap.git",
+    "defaultBranch": "main",
+    "enabled": true,
+    "status": "ready"
+  }
+]

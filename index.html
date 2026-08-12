@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+    <title>PSBUniverse Release Manager</title>
+    <link rel="stylesheet" href="css/app.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/buttons.css">
+    <link rel="stylesheet" href="css/table.css">
+    <link rel="stylesheet" href="css/dialogs.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="app-header">
+            <div class="header-title">
+                <span class="header-icon">&#x21C4;</span>
+                PSBUniverse Release Manager
+            </div>
+            <div class="header-status" id="status-bar">
+                <span class="status-indicator" id="status-indicator"></span>
+                <span id="status-text">Ready</span>
+            </div>
+        </header>
+
+        <div id="app-body">
+            <!-- Left Navigation -->
+            <nav id="app-nav">
+                <ul class="nav-list">
+                    <li class="nav-item active" data-page="repositories">
+                        <span class="nav-icon">&#x1F4E6;</span>
+                        Repositories
+                    </li>
+                    <li class="nav-item" data-page="dashboard">
+                        <span class="nav-icon">&#x25A0;</span>
+                        Dashboard
+                    </li>
+                    <li class="nav-item" data-page="promote">
+                        <span class="nav-icon">&#x25B6;</span>
+                        Promote
+                    </li>
+                    <li class="nav-item" data-page="revert">
+                        <span class="nav-icon">&#x21A9;</span>
+                        Revert
+                    </li>
+                    <li class="nav-item" data-page="compare">
+                        <span class="nav-icon">&#x2194;</span>
+                        Compare
+                    </li>
+                    <li class="nav-item" data-page="history">
+                        <span class="nav-icon">&#x2630;</span>
+                        History
+                    </li>
+                    <li class="nav-item" data-page="settings">
+                        <span class="nav-icon">&#x2699;</span>
+                        Settings
+                    </li>
+                </ul>
+
+                <div class="nav-footer">
+                    <div class="nav-footer-item" onclick="window.api.openPath('Logs')">
+                        <span class="nav-icon">&#x1F4C4;</span>
+                        Open Logs
+                    </div>
+                    <div class="nav-footer-item" onclick="window.api.openPath('GitHubPromotion')">
+                        <span class="nav-icon">&#x1F4C1;</span>
+                        Open Repos
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Main Content Area -->
+            <main id="app-content">
+                <div id="content-header">
+                    <h2 id="page-title">Dashboard</h2>
+                    <div id="content-actions"></div>
+                </div>
+                <div id="content-body">
+                    <!-- Dynamic content loaded here -->
+                </div>
+            </main>
+        </div>
+
+        <!-- Footer Log Console -->
+        <footer id="app-footer">
+            <div class="footer-header">
+                <span>Log Console</span>
+                <button class="btn btn-sm btn-text" onclick="copyLogs()">Copy</button>
+                <button class="btn btn-sm btn-text" onclick="clearLogs()">Clear</button>
+            </div>
+            <div id="log-console">
+                <div id="log-content"></div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Progress Dialog -->
+    <div id="progress-dialog" class="dialog-overlay hidden">
+        <div class="dialog dialog-sm">
+            <div class="dialog-header">
+                <h3 id="progress-title">Processing...</h3>
+            </div>
+            <div class="dialog-body">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <p id="progress-message">Please wait...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Dialog -->
+    <div id="confirm-dialog" class="dialog-overlay hidden">
+        <div class="dialog dialog-md">
+            <div class="dialog-header">
+                <h3 id="confirm-title">Confirm</h3>
+            </div>
+            <div class="dialog-body">
+                <p id="confirm-message">Are you sure?</p>
+                <p id="confirm-detail" class="text-muted"></p>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn-secondary" onclick="closeConfirmDialog()">Cancel</button>
+                <button class="btn btn-primary" id="confirm-btn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast-container"></div>
+
+    <script src="js/common.js"></script>
+    <script src="js/navigation.js"></script>
+</body>
+</html>

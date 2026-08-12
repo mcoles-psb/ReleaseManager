@@ -1,0 +1,45 @@
+<!-- Dashboard Page - Overview of all repositories and quick stats -->
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">Repository Overview</span>
+        <button class="btn btn-primary btn-sm" onclick="showAddRepositoryDialog()">+ Add Repository</button>
+    </div>
+    <div class="table-wrapper">
+        <table class="data-table" id="repo-table">
+            <thead>
+                <tr>
+                    <th>Repository</th>
+                    <th>Branches</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="repo-table-body">
+                <tr>
+                    <td colspan="4" class="text-muted" style="text-align:center; padding:24px;">
+                        Loading repositories...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card-grid" id="stats-cards">
+    <div class="card">
+        <div class="card-title">Total Repositories</div>
+        <div class="card-value" id="stat-repos">-</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Total Branches</div>
+        <div class="card-value" id="stat-branches">-</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Last Promotion</div>
+        <div class="card-value" id="stat-last-promotion" style="font-size:14px;">-</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Production Status</div>
+        <div class="card-value" id="stat-prod-status" style="font-size:14px; color: var(--accent-success);">All Good</div>
+    </div>
+</div>

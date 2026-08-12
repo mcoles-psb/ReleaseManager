@@ -1,0 +1,32 @@
+<!-- Repository Manager Page - Manage Git bare mirror repositories -->
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">Repository Manager</span>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="btn-scan-repos">Scan for Mirrors</button>
+            <button class="btn btn-primary btn-sm" id="btn-add-repo">+ Add Repository</button>
+        </div>
+    </div>
+    <div class="table-wrapper">
+        <table class="data-table" id="repo-table">
+            <thead>
+                <tr>
+                    <th>Repository Name</th>
+                    <th>DEV Organization</th>
+                    <th>PROD Organization</th>
+                    <th>Branch</th>
+                    <th>Status</th>
+                    <th>Last Fetch</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="repo-table-body">
+                <tr>
+                    <td colspan="7" class="text-muted" style="text-align:center; padding:24px;">
+                        Loading repositories...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>

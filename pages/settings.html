@@ -1,0 +1,65 @@
+<!-- Settings Page - Application configuration -->
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">Application Settings</span>
+        <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save Settings</button>
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">DEV GitHub Organization</label>
+        <input type="text" class="form-input" id="setting-dev-org" placeholder="PSBUniverse-DEV">
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">PROD GitHub Organization</label>
+        <input type="text" class="form-input" id="setting-prod-org" placeholder="PSBUniverse-PROD">
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">Mirror Directory</label>
+        <input type="text" class="form-input" id="setting-mirror-dir" placeholder="GitHubPromotion">
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">Default Branch</label>
+        <input type="text" class="form-input" id="setting-default-branch" placeholder="main">
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">Log Retention (days)</label>
+        <input type="number" class="form-input" id="setting-log-retention" value="30" min="1" max="365">
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">Git Executable Path</label>
+        <input type="text" class="form-input" id="setting-git-path" placeholder="git">
+        <p class="text-muted" style="font-size:11px;margin-top:4px;">
+            Leave as "git" to use the default system Git. Specify a full path to use a custom Git executable.
+        </p>
+    </div>
+
+    <div class="checkbox-group">
+        <input type="checkbox" id="setting-confirm-promote" checked>
+        <label for="setting-confirm-promote">Show confirmation dialog before promoting to PROD</label>
+    </div>
+
+    <div class="checkbox-group">
+        <input type="checkbox" id="setting-confirm-revert" checked>
+        <label for="setting-confirm-revert">Show confirmation dialog before reverting a commit</label>
+    </div>
+</div>
+
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">About</span>
+    </div>
+    <p class="text-muted">
+        <strong>PSBUniverse Release Manager</strong> v1.0.0
+    </p>
+    <p class="text-muted">
+        Internal tool for promoting source code from DEV to PROD GitHub organizations.
+    </p>
+    <p class="text-muted">
+        Uses Git bare mirror repositories. No force pushing. No history rewriting.
+    </p>
+</div>

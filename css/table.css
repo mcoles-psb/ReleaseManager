@@ -1,0 +1,154 @@
+/* ─── Data Tables ──────────────────────────────────────────────────────────── */
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-base);
+}
+
+.data-table thead {
+    background: var(--bg-tertiary);
+}
+
+.data-table th {
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+    user-select: none;
+}
+
+.data-table td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.data-table tbody tr {
+    transition: background 0.1s;
+}
+
+.data-table tbody tr:hover {
+    background: var(--bg-hover);
+}
+
+.data-table tbody tr.selected {
+    background: var(--bg-active);
+}
+
+.data-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* ─── Table Sizes ──────────────────────────────────────────────────────────── */
+
+.table-sm th,
+.table-sm td {
+    padding: 4px 8px;
+    font-size: var(--font-size-sm);
+}
+
+/* ─── Monospace Cells ──────────────────────────────────────────────────────── */
+
+.data-table td.hash,
+.data-table td.commit-hash {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--accent-info);
+}
+
+/* ─── Table Wrapper ────────────────────────────────────────────────────────── */
+
+.table-wrapper {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.table-wrapper .data-table {
+    border: none;
+}
+
+/* ─── Table Actions ────────────────────────────────────────────────────────── */
+
+.table-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+/* ─── Search ────────────────────────────────────────────────────────────────── */
+
+.table-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.table-search input {
+    flex: 1;
+    max-width: 300px;
+}
+
+/* ─── Pagination ────────────────────────────────────────────────────────────── */
+
+.table-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border-color);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.table-pagination .page-info {
+    color: var(--text-muted);
+}
+
+/* ─── Badge in table ───────────────────────────────────────────────────────── */
+
+.data-table .badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+}
+
+.badge-success {
+    background: rgba(78, 201, 176, 0.15);
+    color: var(--accent-success);
+}
+
+.badge-error {
+    background: rgba(244, 71, 71, 0.15);
+    color: var(--accent-error);
+}
+
+.badge-warning {
+    background: rgba(220, 220, 170, 0.15);
+    color: var(--accent-warning);
+}
+
+.badge-info {
+    background: rgba(156, 220, 254, 0.15);
+    color: var(--accent-info);
+}
+
+.badge-muted {
+    background: rgba(149, 149, 149, 0.15);
+    color: var(--text-muted);
+}

@@ -1,0 +1,71 @@
+<!-- Promote Page - Promote branches from DEV to PROD -->
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">Promote to Production</span>
+    </div>
+
+    <div class="form-inline">
+        <div class="form-group">
+            <label class="form-label">Repository</label>
+            <select class="form-select" id="promote-repo-select">
+                <option value="">-- Select Repository --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Branch</label>
+            <select class="form-select" id="promote-branch-select">
+                <option value="">-- Select Branch --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">&nbsp;</label>
+            <button class="btn btn-primary" id="promote-btn" disabled>Promote to PROD</button>
+        </div>
+    </div>
+</div>
+
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">DEV vs PROD</span>
+        <button class="btn btn-sm btn-secondary" id="refresh-compare-btn" onclick="refreshCompareTables()">Refresh</button>
+    </div>
+    <div class="compare-columns">
+        <div class="compare-column">
+            <div class="compare-column-header">DEV (origin)</div>
+            <div class="table-wrapper">
+                <table class="data-table table-sm" id="dev-table">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Commit</th>
+                            <th>Author</th>
+                            <th>Date</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dev-table-body">
+                        <tr><td colspan="5" class="text-muted" style="text-align:center;padding:24px;">Select a branch to see DEV history.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="compare-column">
+            <div class="compare-column-header">PROD</div>
+            <div class="table-wrapper">
+                <table class="data-table table-sm" id="prod-table">
+                    <thead>
+                        <tr>
+                            <th>Commit</th>
+                            <th>Author</th>
+                            <th>Date</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody id="prod-table-body">
+                        <tr><td colspan="4" class="text-muted" style="text-align:center;padding:24px;">Select a branch to see PROD history.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

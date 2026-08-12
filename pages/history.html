@@ -1,0 +1,47 @@
+<!-- History Page - View production commit history -->
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">Production History</span>
+        <button class="btn btn-sm btn-secondary" onclick="refreshHistory()">Refresh</button>
+    </div>
+
+    <div class="form-inline">
+        <div class="form-group">
+            <label class="form-label">Repository</label>
+            <select class="form-select" id="history-repo-select">
+                <option value="">-- Select Repository --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Branch</label>
+            <select class="form-select" id="history-branch-select">
+                <option value="">-- Select Branch --</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Max Commits</label>
+            <input type="number" class="form-input" id="history-max-input" value="50" min="5" max="200" style="width:80px;">
+        </div>
+    </div>
+
+    <div class="table-wrapper mt-16">
+        <table class="data-table table-sm" id="history-table">
+            <thead>
+                <tr>
+                    <th>Commit</th>
+                    <th>Author</th>
+                    <th>Date</th>
+                    <th>Message</th>
+                    <th>Refs</th>
+                </tr>
+            </thead>
+            <tbody id="history-body">
+                <tr>
+                    <td colspan="5" class="text-muted" style="text-align:center;padding:24px;">
+                        Select a repository and branch to view history.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
