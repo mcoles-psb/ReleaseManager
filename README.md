@@ -52,20 +52,31 @@ npm start
    git push prod <branch>
 
 4. No force pushing. No history rewriting. No local working files.
-
+   
 ## Project Structure
 
 ReleaseManager/
+
 ├── Config/              # repositories.json, settings.json
+
 ├── Logs/                # daily rotating log files
+
 ├── GitHubPromotion/     # bare mirror repositories live here
+
 ├── js/                  # renderer page logic
+
 ├── pages/               # renderer page HTML fragments
+
 ├── css/                 # app styling
+
 ├── services/            # main-process services (git, repositories, tags, settings, logging)
+
 ├── main.js              # Electron main process
+
 ├── preload.js           # contextBridge API exposed to renderer
+
 └── index.html           # app shell
+
 
 ## Notes
 
