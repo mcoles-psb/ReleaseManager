@@ -58,33 +58,43 @@ npm start
 ReleaseManager/
 
 **repositories.json, settings.json**
+
 ├── Config/              
 
 **daily rotating log files**
+
 ├── Logs/                
 
 **bare mirror repositories live here**
+
 ├── GitHubPromotion/     
 
 **renderer page logic**
+
 ├── js/                  
 
 **renderer page HTML fragments**
+
 ├── pages/               
 
 **app styling**
+
 ├── css/                 
 
 **main-process services (git, repositories, tags, settings, logging)**
+
 ├── services/            
 
 **Electron main process**
+
 ├── main.js              
 
 **contextBridge API exposed to renderer**
+
 ├── preload.js          
 
 **app shell**
+
 └── index.html           
 
 ## Notes
