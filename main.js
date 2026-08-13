@@ -68,6 +68,46 @@ function initializeServices() {
 }
 
 /**
+ * Ensures every repository listed in configuration has a corresponding
+ * bare mirror on disk. Runs on every startup. If GitHubPromotion/<name>.git
+ * is missing (e.g. after cloning the ReleaseManager project itself onto a
+ * new machine), it is cloned automatically. Existing mirrors are left
+ * untouched. One failing repository does not block the others or stop
+ * the app from starting.
+ */
+async function provisionRepositories() {
+    const configuredRepos = repositoryService.loadRepositories();
+    if (configuredRepos.length === 0) return;
+
+    logger.info(`Checking ${configuredRepos.length} configured repositories for missing local mirrors...`);
+
+    for (const repo of configuredRepos) {
+        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repo.name}.git`);
+
+        if (fs.existsSync(repoPath)) {
+            continue;
+        }
+
+        logger.info(`Mirror missing for ${repo.name}, cloning automatically...`);
+        try {
+            const result = await repositoryService.cloneRepository(repo.devRepo, repo.prodRepo, repo.name);
+            // Update the config entry in place with the fresh status,
+            // without duplicating or reordering existing entries.
+            Object.assign(repo, result.repository);
+            logger.success(`Auto-provisioned repository: ${repo.name}`);
+        } catch (err) {
+            logger.error(`Failed to auto-provision ${repo.name}: ${err.message}`);
+            // Continue to the next repo rather than throwing — a single
+            // broken/renamed/deleted remote should not prevent the app
+            // from starting or block provisioning of the others.
+        }
+    }
+
+    repositoryService.saveRepositories(configuredRepos);
+    logger.info('Repository provisioning check complete');
+}
+
+/**
  * Returns the list of mirror repositories found in the GitHubPromotion directory.
  * Each repository is a bare Git mirror.
  */
@@ -436,9 +476,10 @@ function registerIpcHandlers() {
 
 // ─── App Lifecycle ───────────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
     initializeServices();
     registerIpcHandlers();
+    await provisionRepositories();
     createWindow();
 
     app.on('activate', () => {
