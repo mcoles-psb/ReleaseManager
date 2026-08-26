@@ -1,4 +1,7 @@
 const simpleGit = require('simple-git');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 /**
  * Wraps the simple-git library to provide Git operations
@@ -83,27 +86,58 @@ class GitService {
     }
 
     /**
-     * Reverts a specific commit on the given branch and pushes to prod.
-     * Uses git revert to safely undo changes without rewriting history.
+     * Reverts a specific commit on the given branch and pushes to prod
+     * ONLY. Uses a temporary worktree since bare repos have no working
+     * tree. Handles merge commits (which require -m to specify the
+     * mainline parent) and auto-resolves textual conflicts using
+     * -X theirs (favors the reverted/incoming content on any 
+     * conflicting line). Does not touch origin/DEV — PROD only.
      */
     async revertAndPush(repoPath, branch, commitHash) {
+        const worktreePath = path.join(
+            os.tmpdir(),
+            `release-manager-revert-${Date.now()}`
+        );
+
         this.logger.info(`Reverting commit ${commitHash} on ${branch}`);
+        const git = this.git(repoPath);
 
         try {
-            // Checkout the branch in the bare repo using worktree
-            // In a bare repo, we use git revert with environment variables
-            const git = this.git(repoPath);
+            await git.raw(['worktree', 'add', worktreePath, `prod/${branch}`]);
+            const worktreeGit = this.git(worktreePath);
 
-            // Perform the revert
-            await git.raw(['revert', '--no-edit', commitHash]);
+            const attemptRevert = async (extraArgs = []) => {
+                await worktreeGit.raw(['revert', '--no-edit', '-X', 'theirs', ...extraArgs, commitHash]);
+            };
 
-            // Push the revert to prod
-            await git.push('prod', branch);
+            try {
+                await attemptRevert();
+            } catch (revertError) {
+                const message = (revertError.message || '') + (revertError.stderr || '');
+                if (message.includes('is a merge but no -m option was given')) {
+                    this.logger.warn(`Commit ${commitHash} is a merge commit — retrying revert with -m 1 (mainline) and -X theirs`);
+                    await attemptRevert(['-m', '1']);
+                } else {
+                    throw revertError;
+                }
+            }
 
+            await worktreeGit.raw(['push', 'prod', `HEAD:${branch}`]);
             this.logger.success(`Revert pushed: ${commitHash} on ${branch}`);
         } catch (error) {
             this.logger.logGitError('revertAndPush', error);
             throw error;
+        } finally {
+            try {
+                await git.raw(['worktree', 'remove', worktreePath, '--force']);
+            } catch (cleanupError) {
+                this.logger.warn(`Failed to clean up worktree at ${worktreePath}: ${cleanupError.message}`);
+                try {
+                    fs.rmSync(worktreePath, { recursive: true, force: true });
+                } catch (fsError) {
+                    this.logger.warn(`Failed to remove worktree folder from disk: ${fsError.message}`);
+                }
+            }
         }
     }
 
@@ -132,16 +166,46 @@ class GitService {
     }
 
     /**
+     * Checks whether a given ref exists in the repository.
+     * Used to distinguish a genuinely missing PROD branch (e.g. first
+     * deploy, empty PROD repo) from an actual error.
+     *
+     * Note: `git rev-parse --verify --quiet` can resolve successfully
+     * with empty output even for a nonexistent ref (observed via
+     * simple-git's raw() in this environment), so success/failure of
+     * the promise alone is not reliable. We validate that the output
+     * is an actual 40-character commit SHA instead.
+     */
+    async refExists(repoPath, ref) {
+        const git = this.git(repoPath);
+        try {
+            const result = await git.raw(['rev-parse', '--verify', '--quiet', ref]);
+            const trimmed = (result || '').trim();
+            return /^[0-9a-f]{40}$/i.test(trimmed);
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
      * Returns the log of commits for a branch in a parseable format.
      * In a mirror repo, PROD history is under refs/remotes/prod/<branch>.
      * Uses git log with a custom format string via raw().
      */
     async log(repoPath, branch, maxCount = 50) {
         const git = this.git(repoPath);
+        const ref = `refs/remotes/prod/${branch}`;
+
+        const exists = await this.refExists(repoPath, ref);
+        if (!exists) {
+            this.logger.info(`No PROD history yet for ${branch} (ref ${ref} does not exist) — returning empty history`);
+            return [];
+        }
+
         try {
             const output = await git.raw([
                 'log',
-                `refs/remotes/prod/${branch}`,
+                ref,
                 `--max-count=${maxCount}`,
                 '--pretty=format:%H|%h|%an|%ai|%s|%D'
             ]);
@@ -185,7 +249,16 @@ class GitService {
      */
     async compare(repoPath, branch) {
         const git = this.git(repoPath);
-        const range = `refs/remotes/prod/${branch}..refs/heads/${branch}`;
+        const prodRef = `refs/remotes/prod/${branch}`;
+        const devRef = `refs/heads/${branch}`;
+
+        const prodExists = await this.refExists(repoPath, prodRef);
+        const range = prodExists ? `${prodRef}..${devRef}` : devRef;
+
+        if (!prodExists) {
+            this.logger.info(`No PROD history yet for ${branch} — treating entire DEV history as pending`);
+        }
+
         try {
             const output = await git.raw([
                 'log',

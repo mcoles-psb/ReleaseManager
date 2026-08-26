@@ -335,6 +335,20 @@ a:hover {
     min-width: 0;
 }
 
+.compare-column .table-wrapper {
+    max-height: 400px;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+.compare-column .data-table {
+    min-width: 600px;
+}
+
+.compare-column .data-table td {
+    white-space: nowrap;
+}
+
 .compare-column-header {
     font-size: var(--font-size-sm);
     font-weight: 600;

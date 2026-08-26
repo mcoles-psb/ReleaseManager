@@ -122,7 +122,6 @@ async function refreshRecentHistory() {
 }
 
     window.refreshRecentHistory = refreshRecentHistory;
-})();
 
 /**
  * Executes the revert operation after confirmation.
@@ -155,3 +154,5 @@ async function doRevert() {
         document.getElementById('revert-btn').disabled = false;
     }
 }
+
+})();
