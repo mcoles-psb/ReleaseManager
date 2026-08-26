@@ -71,17 +71,58 @@ class GitService {
     }
 
     /**
-     * Pushes a branch to the prod remote.
-     * This is the promotion action: DEV -> PROD.
+     * Promotes a branch from DEV to PROD by merging DEV's current state
+     * into PROD's current state and pushing the result — NOT by
+     * force-overwriting PROD. This preserves any commits that exist
+     * only on PROD (e.g. a prior Revert), which a force-push would
+     * otherwise erase, while still bringing DEV's new commits forward.
      */
     async pushBranch(repoPath, branch, remote = 'prod') {
-        this.logger.info(`Force-pushing ${branch} to ${remote}`);
+        const worktreePath = path.join(
+            os.tmpdir(),
+            `release-manager-promote-${Date.now()}`
+        );
+
+        this.logger.info(`Promoting ${branch} to ${remote} (merging DEV into current PROD state)`);
+        const git = this.git(repoPath);
+
         try {
-            await this.git(repoPath).raw(['push', remote, `refs/heads/${branch}:refs/heads/${branch}`, '--force']);
-            this.logger.success(`Force-pushed ${branch} to ${remote}`);
+            // Start from PROD's current tip (includes anything PROD-only,
+            // like a revert commit), not DEV's tip.
+            await git.raw(['worktree', 'add', worktreePath, `${remote}/${branch}`]);
+            const worktreeGit = this.git(worktreePath);
+
+            try {
+                // DEV's tip lives at refs/heads/<branch> in this mirror repo
+                // (origin's refs are mapped into local refs/heads by --mirror).
+                // -X theirs: when DEV's changes conflict with PROD's content
+                // on the same lines, DEV automatically wins; non-conflicting
+                // PROD commits (e.g. a prior Revert) are still preserved.
+                await worktreeGit.raw(['merge', `refs/heads/${branch}`, '--no-edit', '-X', 'theirs']);
+            } catch (mergeError) {
+                const message = (mergeError.message || '') + (mergeError.stderr || '');
+                this.logger.error(`Promote merge conflict: DEV's changes conflict with PROD's current state (likely a prior Revert touched the same lines). Manual resolution required.`);
+                throw new Error(`Promote failed: merge conflict between DEV and PROD's current state. This usually means DEV has a change that conflicts with a previous Revert on PROD. Resolve manually. Details: ${message}`);
+            }
+
+            // Push the merge result. This should be a normal fast-forward
+            // from PROD's perspective since we started from PROD's own tip.
+            await worktreeGit.raw(['push', remote, `HEAD:${branch}`]);
+            this.logger.success(`Promoted ${branch} to ${remote} (DEV merged onto PROD's existing history)`);
         } catch (error) {
             this.logger.logGitError('pushBranch', error);
             throw error;
+        } finally {
+            try {
+                await git.raw(['worktree', 'remove', worktreePath, '--force']);
+            } catch (cleanupError) {
+                this.logger.warn(`Failed to clean up worktree at ${worktreePath}: ${cleanupError.message}`);
+                try {
+                    fs.rmSync(worktreePath, { recursive: true, force: true });
+                } catch (fsError) {
+                    this.logger.warn(`Failed to remove worktree folder from disk: ${fsError.message}`);
+                }
+            }
         }
     }
 
