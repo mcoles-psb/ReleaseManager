@@ -75,10 +75,10 @@ class GitService {
      * This is the promotion action: DEV -> PROD.
      */
     async pushBranch(repoPath, branch, remote = 'prod') {
-        this.logger.info(`Pushing ${branch} to ${remote}`);
+        this.logger.info(`Force-pushing ${branch} to ${remote}`);
         try {
-            await this.git(repoPath).push(remote, branch);
-            this.logger.success(`Pushed ${branch} to ${remote}`);
+            await this.git(repoPath).raw(['push', remote, `refs/heads/${branch}:refs/heads/${branch}`, '--force']);
+            this.logger.success(`Force-pushed ${branch} to ${remote}`);
         } catch (error) {
             this.logger.logGitError('pushBranch', error);
             throw error;
@@ -122,7 +122,7 @@ class GitService {
                 }
             }
 
-            await worktreeGit.raw(['push', 'prod', `HEAD:${branch}`]);
+            await worktreeGit.raw(['push', 'prod', `HEAD:${branch}`, '--force']);
             this.logger.success(`Revert pushed: ${commitHash} on ${branch}`);
         } catch (error) {
             this.logger.logGitError('revertAndPush', error);
