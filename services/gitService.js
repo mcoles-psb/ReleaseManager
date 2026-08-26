@@ -45,7 +45,7 @@ class GitService {
     async fetchOrigin(repoPath) {
         this.logger.info(`Fetching origin: ${repoPath}`);
         try {
-            await this.git(repoPath).raw(['fetch', 'origin', '--prune', '--tags']);
+            await this.git(repoPath).raw(['fetch', 'origin', '--tags']);
             this.logger.success(`Origin fetched: ${repoPath}`);
         } catch (error) {
             this.logger.logGitError('fetchOrigin', error);
@@ -59,7 +59,7 @@ class GitService {
     async fetchProd(repoPath) {
         this.logger.info(`Fetching prod: ${repoPath}`);
         try {
-            await this.git(repoPath).raw(['fetch', 'prod', '--prune', '--tags']);
+            await this.git(repoPath).raw(['fetch', 'prod', '--tags']);
             this.logger.success(`Prod fetched: ${repoPath}`);
         } catch (error) {
             this.logger.logGitError('fetchProd', error);

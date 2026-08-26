@@ -25,5 +25,14 @@
     "defaultBranch": "main",
     "enabled": true,
     "status": "ready"
+  },
+  {
+    "name": "PSB_OHDApp",
+    "path": "GitHubPromotion/PSB_OHDApp.git",
+    "devRepo": "https://github.com/PSBUniverse-DEV/PSB_OHDApp.git",
+    "prodRepo": "https://github.com/PSBUniverse-PROD/PSB_OHDApp.git",
+    "defaultBranch": "main",
+    "enabled": true,
+    "status": "ready"
   }
 ]
