@@ -95,12 +95,46 @@ class GitService {
             try {
                 // DEV's tip lives at refs/heads/<branch> in this mirror repo
                 // (origin's refs are mapped into local refs/heads by --mirror).
-                // -X theirs: when DEV's changes conflict with PROD's content
+                // -X theirs:
+                // when DEV's changes conflict with PROD's content
                 // on the same lines, DEV automatically wins; non-conflicting
                 // PROD commits (e.g. a prior Revert) are still preserved.
-                await worktreeGit.raw(['merge', `refs/heads/${branch}`, '--no-edit', '-X', 'theirs']);
+                //
+                // --allow-unrelated-histories:
+                // DEV and PROD are two separate repositories in two separate
+                // GitHub organisations, so they do not necessarily share a
+                // common ancestor. When the PROD repository was created
+                // independently (it has its own first commit that DEV never
+                // had), there is no common ancestor at all and plain
+                // `git merge` refuses to even start:
+                //     fatal: refusing to merge unrelated histories
+                // That is NOT a content conflict, and it cannot be fixed by
+                // hand-editing the conflicting lines. This flag tells Git to
+                // accept the merge despite the missing common ancestor.
+                // It is ignored when a common ancestor does exist, so it is
+                // safe to always pass. Combined with -X theirs above, DEV's
+                // content wins anywhere the two disagree.
+                await worktreeGit.raw([
+                    'merge',
+                    `refs/heads/${branch}`,
+                    '--no-edit',
+                    '-X', 'theirs',
+                    '--allow-unrelated-histories'
+                ]);
             } catch (mergeError) {
                 const message = (mergeError.message || '') + (mergeError.stderr || '');
+
+                // These two failures look alike in the log but need very
+                // different fixes, so never report one as the other.
+                if (message.includes('refusing to merge unrelated histories')) {
+                    this.logger.error(`Promote failed: DEV and PROD have no common ancestor for ${branch}.`);
+                    throw new Error(`Promote failed: DEV and PROD have no shared history for branch "${branch}", so Git cannot merge them. Re-add the repository in Settings so the mirror is cloned from the DEV URL and both remotes are configured, then promote again. Details: ${message}`);
+                }
+
+                // A real content conflict that -X theirs could not settle
+                // (for example an add/add or delete/modify clash). The files
+                // are left in the temporary worktree for inspection; that
+                // folder is removed during cleanup.
                 this.logger.error(`Promote merge conflict: DEV's changes conflict with PROD's current state (likely a prior Revert touched the same lines). Manual resolution required.`);
                 throw new Error(`Promote failed: merge conflict between DEV and PROD's current state. This usually means DEV has a change that conflicts with a previous Revert on PROD. Resolve manually. Details: ${message}`);
             }
