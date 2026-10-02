@@ -13,6 +13,13 @@ window.pageInit = async function () {
     setStatus('Loading settings...', 'busy');
     await loadSettings();
     setStatus('Settings loaded', 'success');
+
+    // Bound here rather than with an inline onclick attribute, which the app's
+    // Content-Security-Policy blocks.
+    const saveBtn = document.getElementById('btn-save-settings');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', saveSettings);
+    }
 };
 
 /**
@@ -61,5 +68,4 @@ async function saveSettings() {
         setStatus('Failed to save settings', 'error');
     }
 }
-    window.saveSettings = saveSettings;
 })();

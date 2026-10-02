@@ -73,6 +73,13 @@ function setupEventListeners() {
     });
 
     promoteBtn.addEventListener('click', promoteBranch);
+
+    // The Refresh button is bound here rather than with an inline onclick
+    // attribute, which the app's Content-Security-Policy blocks.
+    const refreshBtn = document.getElementById('refresh-compare-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', refreshCompareTables);
+    }
 }
 
 /**
@@ -175,5 +182,4 @@ async function promoteBranch() {
         document.getElementById('promote-btn').disabled = false;
     }
 }
-    window.refreshCompareTables = refreshCompareTables;
 })();

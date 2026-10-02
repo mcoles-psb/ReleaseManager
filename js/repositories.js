@@ -15,7 +15,7 @@ window.pageInit = async function () {
     setStatus('Loading repositories...', 'busy');
     await loadRepositories();
     setStatus('Repository Manager ready', 'success');
-    
+
     // Attach event listeners after page loads
     const addBtn = document.getElementById('btn-add-repo');
     if (addBtn) {
@@ -25,6 +25,9 @@ window.pageInit = async function () {
     if (scanBtn) {
         scanBtn.addEventListener('click', scanForMirrors);
     }
+
+    // Handle Refresh / Verify / Remove for every row in the table
+    attachRepoTableHandlers();
 };
 
 /**
@@ -93,23 +96,63 @@ function renderRepoTable(repos) {
         const devOrg = extractOrgFromUrl(repo.devRepo);
         const prodOrg = extractOrgFromUrl(repo.prodRepo);
         const statusBadge = getStatusBadge(repo.status, repo.enabled);
-        
+        const safeName = escapeHtml(repo.name);
+
+        // The action buttons carry the repository name in a data attribute
+        // rather than in an inline onclick="..." handler. index.html sets a
+        // strict Content-Security-Policy which blocks inline handlers, so they
+        // would silently do nothing. See attachRepoTableHandlers() below.
         return `
             <tr>
-                <td><strong>${escapeHtml(repo.name)}</strong></td>
+                <td><strong>${safeName}</strong></td>
                 <td>${escapeHtml(devOrg)}</td>
                 <td>${escapeHtml(prodOrg)}</td>
                 <td>${escapeHtml(repo.defaultBranch || 'main')}</td>
                 <td>${statusBadge}</td>
                 <td class="text-muted">-</td>
                 <td>
-                    <button class="btn btn-sm btn-text" onclick="refreshRepository('${escapeHtml(repo.name)}')">Refresh</button>
-                    <button class="btn btn-sm btn-text" onclick="verifyRepository('${escapeHtml(repo.name)}')">Verify</button>
-                    <button class="btn btn-sm btn-text btn-danger" onclick="removeRepository('${escapeHtml(repo.name)}')">Remove</button>
+                    <button class="btn btn-sm btn-text" data-action="refresh" data-repo="${safeName}">Refresh</button>
+                    <button class="btn btn-sm btn-text" data-action="verify" data-repo="${safeName}">Verify</button>
+                    <button class="btn btn-sm btn-text btn-danger" data-action="remove" data-repo="${safeName}">Remove</button>
                 </td>
             </tr>
         `;
     }).join('');
+}
+
+/**
+ * Wires up the Refresh / Verify / Remove buttons in the repository table.
+ *
+ * The listener is attached to the table body once (rather than to each button)
+ * because the table is rebuilt from scratch every time the repository list is
+ * loaded. Listening on the parent means newly rendered rows are handled
+ * automatically, with no need to re-bind after every refresh.
+ */
+function attachRepoTableHandlers() {
+    const tbody = document.getElementById('repo-table-body');
+    if (!tbody) return;
+
+    tbody.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+
+        // dataset returns the attribute value already decoded by the browser,
+        // so this is the original repository name (not the HTML-escaped form).
+        const repoName = button.dataset.repo;
+        if (!repoName) return;
+
+        switch (button.dataset.action) {
+            case 'refresh':
+                refreshRepository(repoName);
+                break;
+            case 'verify':
+                verifyRepository(repoName);
+                break;
+            case 'remove':
+                removeRepository(repoName);
+                break;
+        }
+    });
 }
 
 /**
@@ -162,7 +205,7 @@ function showAddRepositoryDialog() {
         <div class="dialog dialog-md">
             <div class="dialog-header">
                 <h3>Add Repository</h3>
-                <button class="dialog-close" onclick="this.closest('.dialog-overlay').remove()">&times;</button>
+                <button class="dialog-close" id="add-repo-close">&times;</button>
             </div>
             <div class="dialog-body">
                 <div class="form-group">
@@ -190,7 +233,7 @@ function showAddRepositoryDialog() {
                 </p>
             </div>
             <div class="dialog-footer">
-                <button class="btn btn-secondary" onclick="this.closest('.dialog-overlay').remove()">Cancel</button>
+                <button class="btn btn-secondary" id="add-repo-cancel">Cancel</button>
                 <button class="btn btn-primary" id="add-repo-confirm">Clone Mirror</button>
             </div>
         </div>
@@ -199,6 +242,12 @@ function showAddRepositoryDialog() {
 
     // Focus the first input
     setTimeout(() => document.getElementById('new-repo-name').focus(), 100);
+
+    // The close (×) and Cancel buttons dismiss the dialog without cloning.
+    // These use addEventListener because inline onclick handlers are blocked by
+    // the app's Content-Security-Policy.
+    overlay.querySelector('#add-repo-close').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('#add-repo-cancel').addEventListener('click', () => overlay.remove());
 
     // Auto-fill DEV/PROD URLs when repository name changes
     const devUrlInput = document.getElementById('new-repo-dev-url');
@@ -329,8 +378,4 @@ async function refreshRepository(repoName) {
         setStatus('Refresh failed', 'error');
     }
 }
-
-    window.refreshRepository = refreshRepository;
-    window.verifyRepository = verifyRepository;
-    window.removeRepository = removeRepository;
 })();

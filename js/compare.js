@@ -66,6 +66,13 @@ function setupEventListeners() {
             clearCompareResults();
         }
     });
+
+    // The Refresh button is bound here rather than with an inline onclick
+    // attribute, which the app's Content-Security-Policy blocks.
+    const refreshBtn = document.getElementById('refresh-compare-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', refreshCompare);
+    }
 }
 
 /**
@@ -150,5 +157,4 @@ async function refreshCompare() {
     }
 }
 
-    window.refreshCompare = refreshCompare;
 })();

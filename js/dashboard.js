@@ -15,6 +15,13 @@ window.pageInit = async function () {
     setStatus('Loading repositories...', 'busy');
     await loadRepositories();
     setStatus('Dashboard ready', 'success');
+
+    const addBtn = document.getElementById('btn-add-repo');
+    if (addBtn) {
+        addBtn.addEventListener('click', showAddRepositoryDialog);
+    }
+
+    attachRepoTableHandlers();
 };
 
 /**
@@ -53,17 +60,43 @@ function renderRepoTable(repos) {
 
     tbody.innerHTML = repos.map(repo => {
         const repoName = repo.name || repo;
+        const safeName = escapeHtml(repoName);
+
+        // The Remove button carries the repository name in a data attribute
+        // instead of an inline onclick="..." handler, which the app's
+        // Content-Security-Policy blocks. See attachRepoTableHandlers() below.
         return `
             <tr>
-                <td><strong>${escapeHtml(repoName)}</strong></td>
+                <td><strong>${safeName}</strong></td>
                 <td class="text-muted">-</td>
                 <td><span class="badge badge-success">Mirror</span></td>
                 <td>
-                    <button class="btn btn-sm btn-text" onclick="removeRepository('${escapeHtml(repoName)}')">Remove</button>
+                    <button class="btn btn-sm btn-text" data-action="remove" data-repo="${safeName}">Remove</button>
                 </td>
             </tr>
         `;
     }).join('');
+}
+
+/**
+ * Wires up the Remove button in the dashboard table.
+ *
+ * The listener sits on the table body so that rows re-rendered after a
+ * remove or refresh are handled automatically without re-binding.
+ */
+function attachRepoTableHandlers() {
+    const tbody = document.getElementById('repo-table-body');
+    if (!tbody) return;
+
+    tbody.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-action="remove"]');
+        if (!button) return;
+
+        const repoName = button.dataset.repo;
+        if (repoName) {
+            removeRepository(repoName);
+        }
+    });
 }
 
 /**
@@ -86,7 +119,7 @@ function showAddRepositoryDialog() {
         <div class="dialog dialog-sm">
             <div class="dialog-header">
                 <h3>Add Repository</h3>
-                <button class="dialog-close" onclick="this.closest('.dialog-overlay').remove()">&times;</button>
+                <button class="dialog-close" id="add-repo-close">&times;</button>
             </div>
             <div class="dialog-body">
                 <div class="form-group">
@@ -99,7 +132,7 @@ function showAddRepositoryDialog() {
                 </p>
             </div>
             <div class="dialog-footer">
-                <button class="btn btn-secondary" onclick="this.closest('.dialog-overlay').remove()">Cancel</button>
+                <button class="btn btn-secondary" id="add-repo-cancel">Cancel</button>
                 <button class="btn btn-primary" id="add-repo-confirm">Add Repository</button>
             </div>
         </div>
@@ -108,6 +141,12 @@ function showAddRepositoryDialog() {
 
     // Focus the input
     setTimeout(() => document.getElementById('new-repo-url').focus(), 100);
+
+    // The close (×) and Cancel buttons dismiss the dialog without adding.
+    // These use addEventListener because inline onclick handlers are blocked by
+    // the app's Content-Security-Policy.
+    overlay.querySelector('#add-repo-close').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('#add-repo-cancel').addEventListener('click', () => overlay.remove());
 
     // Handle confirm
     document.getElementById('add-repo-confirm').addEventListener('click', async () => {
@@ -165,7 +204,4 @@ async function removeRepository(repoName) {
         showToast(`Failed to remove repository: ${err.message}`, 'error');
     }
 }
-
-    window.showAddRepositoryDialog = showAddRepositoryDialog;
-    window.removeRepository = removeRepository;
 })();

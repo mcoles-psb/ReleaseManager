@@ -2,6 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!--
+        Strict CSP: 'unsafe-inline' is deliberately NOT allowed in script-src.
+        This means inline onclick="..." attributes are blocked by Chromium and
+        those buttons would silently do nothing. Every button in this app must
+        therefore be wired up from JavaScript using addEventListener.
+    -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
     <title>PSBUniverse Release Manager</title>
     <link rel="stylesheet" href="css/app.css">
@@ -59,11 +65,11 @@
                 </ul>
 
                 <div class="nav-footer">
-                    <div class="nav-footer-item" onclick="window.api.openPath('Logs')">
+                    <div class="nav-footer-item" id="open-logs-btn">
                         <span class="nav-icon">&#x1F4C4;</span>
                         Open Logs
                     </div>
-                    <div class="nav-footer-item" onclick="window.api.openPath('GitHubPromotion')">
+                    <div class="nav-footer-item" id="open-repos-btn">
                         <span class="nav-icon">&#x1F4C1;</span>
                         Open Repos
                     </div>
@@ -86,8 +92,8 @@
         <footer id="app-footer">
             <div class="footer-header">
                 <span>Log Console</span>
-                <button class="btn btn-sm btn-text" onclick="copyLogs()">Copy</button>
-                <button class="btn btn-sm btn-text" onclick="clearLogs()">Clear</button>
+                <button class="btn btn-sm btn-text" id="copy-logs-btn">Copy</button>
+                <button class="btn btn-sm btn-text" id="clear-logs-btn">Clear</button>
             </div>
             <div id="log-console">
                 <div id="log-content"></div>
@@ -121,7 +127,7 @@
                 <p id="confirm-detail" class="text-muted"></p>
             </div>
             <div class="dialog-footer">
-                <button class="btn btn-secondary" onclick="closeConfirmDialog()">Cancel</button>
+                <button class="btn btn-secondary" id="confirm-cancel-btn">Cancel</button>
                 <button class="btn btn-primary" id="confirm-btn">Confirm</button>
             </div>
         </div>

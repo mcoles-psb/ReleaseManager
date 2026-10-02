@@ -81,6 +81,13 @@ function setupEventListeners() {
     });
 
     revertBtn.addEventListener('click', doRevert);
+
+    // The Refresh button is bound here rather than with an inline onclick
+    // attribute, which the app's Content-Security-Policy blocks.
+    const refreshBtn = document.getElementById('refresh-recent-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', refreshRecentHistory);
+    }
 }
 
 /**
@@ -121,9 +128,7 @@ async function refreshRecentHistory() {
     }
 }
 
-    window.refreshRecentHistory = refreshRecentHistory;
-
-/**
+    /**
  * Executes the revert operation after confirmation.
  */
 async function doRevert() {

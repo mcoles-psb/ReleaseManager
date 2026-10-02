@@ -75,9 +75,13 @@ function showConfirmDialog(title, message, detail, onConfirm) {
 
     const confirmBtn = document.getElementById('confirm-btn');
     confirmBtn.onclick = function () {
+        // Grab the callback BEFORE closing the dialog. closeConfirmDialog()
+        // clears it, so reading it afterwards would always see null and the
+        // caller's action would never run.
+        const callback = confirmCallback;
         closeConfirmDialog();
-        if (typeof confirmCallback === 'function') {
-            confirmCallback();
+        if (typeof callback === 'function') {
+            callback();
         }
     };
 
@@ -326,8 +330,45 @@ function showLoadingState(container) {
 
 // ─── Initialize Log Console ──────────────────────────────────────────────────
 
+/**
+ * Binds the buttons that live permanently in the application shell
+ * (index.html) rather than inside a loaded page.
+ *
+ * These cannot use inline onclick="..." attributes because index.html sets a
+ * strict Content-Security-Policy that blocks them, so they are wired up here.
+ */
+function initShellButtons() {
+    const openLogsBtn = document.getElementById('open-logs-btn');
+    if (openLogsBtn) {
+        openLogsBtn.addEventListener('click', () => window.api.openPath('Logs'));
+    }
+
+    const openReposBtn = document.getElementById('open-repos-btn');
+    if (openReposBtn) {
+        openReposBtn.addEventListener('click', () => window.api.openPath('GitHubPromotion'));
+    }
+
+    const copyBtn = document.getElementById('copy-logs-btn');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', copyLogs);
+    }
+
+    const clearBtn = document.getElementById('clear-logs-btn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', clearLogs);
+    }
+
+    // "Cancel" simply dismisses the confirmation dialog without running the
+    // callback that was registered when the dialog was opened.
+    const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+    if (confirmCancelBtn) {
+        confirmCancelBtn.addEventListener('click', closeConfirmDialog);
+    }
+}
+
 // Add right-click context menu to the log console for copy operations
 document.addEventListener('DOMContentLoaded', () => {
+    initShellButtons();
     startLogPolling();
 
     const logConsole = document.getElementById('log-console');

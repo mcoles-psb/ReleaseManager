@@ -73,6 +73,13 @@ function setupEventListeners() {
             refreshHistory();
         }
     });
+
+    // The Refresh button is bound here rather than with an inline onclick
+    // attribute, which the app's Content-Security-Policy blocks.
+    const refreshBtn = document.getElementById('refresh-history-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', refreshHistory);
+    }
 }
 
 /**
@@ -116,5 +123,4 @@ async function refreshHistory() {
         tbody.innerHTML = `<tr><td colspan="5" class="text-error" style="text-align:center;padding:24px;">Error: ${escapeHtml(err.message)}</td></tr>`;
     }
 }
-    window.refreshHistory = refreshHistory;
 })();
