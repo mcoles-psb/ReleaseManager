@@ -5,8 +5,7 @@
  * - Loading and saving repository configuration
  * - Cloning new repositories as bare mirrors
  * - Deleting repositories
- * - Verifying repository configuration
- * - Refreshing repository data
+ * - Refetching repositories (cloning them first if the mirror is missing)
  *
  * All Git operations are delegated to GitService.
  */
@@ -130,80 +129,130 @@ class RepositoryService {
      * @param {string} repoName - The repository name (e.g., "PSBUniverse-core" or "PSBUniverse-core.git")
      */
     deleteRepository(repoName) {
-        try {
-            // Standardize: strip .git if present
-            const cleanName = repoName.replace(/\.git$/, '');
-            const repoPath = path.join(this.git.baseDir, `${cleanName}.git`);
+        // Strip .git if present so callers can pass either form
+        const cleanName = repoName.replace(/\.git$/, '');
+        const repoPath = path.join(this.git.baseDir, `${cleanName}.git`);
 
-            if (!fs.existsSync(repoPath)) {
-                throw new Error(`Repository ${cleanName} not found at ${repoPath}`);
+        this.logger.info(`Deleting repository: ${cleanName}`);
+
+        if (fs.existsSync(repoPath)) {
+            // Recursively delete the bare repository (the cloned mirror)
+            fs.rmSync(repoPath, { recursive: true, force: true });
+            this.logger.success(`Cloned mirror deleted from disk: ${cleanName}`);
+        } else {
+            // Nothing on disk to delete. This is not an error: the repository
+            // may already have been removed, and the caller still needs to
+            // drop it from the saved list so Delete always succeeds.
+            this.logger.warn(`No cloned mirror on disk for ${cleanName}; removing the saved entry only`);
+        }
+
+        return { success: true };
+    }
+
+    /**
+     * Refetches a single repository, cloning it first if the mirror is missing.
+     *
+     * A "refetch" is the manual way to bring a mirror back into a known-good
+     * state:
+     *   - if GitHubPromotion/<name>.git is missing, it is cloned from DEV;
+     *   - the PROD remote is (re)added if absent;
+     *   - both DEV (origin) and PROD (prod) are then fetched.
+     *
+     * Nothing re-clones automatically at startup — this is the only path that
+     * recreates a mirror, which is what the Refetch buttons in the UI call.
+     *
+     * @param {string} repoName - The repository name (e.g., "PSBUniverse-core")
+     * @returns {Object} { success, cloned, prodFetched, status }
+     */
+    async refetchRepository(repoName) {
+        const cleanName = repoName.replace(/\.git$/, '');
+        const repoPath = path.join(this.git.baseDir, `${cleanName}.git`);
+
+        // The URLs live in the saved configuration, not on disk, so we must
+        // look the repository up before we can clone or fetch it.
+        const saved = this.loadRepositories().find(r => r.name === cleanName);
+        if (!saved) {
+            throw new Error(`Repository ${cleanName} is not in the saved list`);
+        }
+
+        const needsClone = !fs.existsSync(repoPath);
+        this.logger.info(
+            needsClone
+                ? `Refetch: mirror missing for ${cleanName}, cloning from DEV`
+                : `Refetching existing mirror: ${cleanName}`
+        );
+
+        try {
+            if (needsClone) {
+                await this.git.cloneMirror(saved.devRepo, repoPath);
             }
 
-            this.logger.info(`Deleting repository: ${cleanName}`);
+            // Ensure the PROD remote exists. An older mirror may have been
+            // cloned before the prod remote was configured, which would make
+            // the prod fetch below fail.
+            const remotes = await this.git.getRemotes(repoPath);
+            if (!remotes.prod && saved.prodRepo) {
+                await this.git.addRemote(repoPath, 'prod', saved.prodRepo);
+            }
 
-            // Recursively delete the bare repository
-            fs.rmSync(repoPath, { recursive: true, force: true });
+            await this.git.fetchOrigin(repoPath);
 
-            this.logger.success(`Repository ${cleanName} deleted successfully`);
-            return { success: true };
+            // A PROD repository may legitimately be brand new and empty, so a
+            // failed prod fetch is logged but must not fail the whole refetch.
+            let prodFetched = true;
+            try {
+                await this.git.fetchProd(repoPath);
+            } catch (err) {
+                prodFetched = false;
+                this.logger.warn(`Could not fetch prod for ${cleanName} (may be new or empty on PROD): ${err.message}`);
+            }
+
+            this.logger.success(`Repository ${cleanName} ${needsClone ? 'cloned and fetched' : 'refetched'}`);
+            return { success: true, cloned: needsClone, prodFetched: prodFetched, status: 'ready' };
         } catch (err) {
-            this.logger.error(`Failed to delete repository ${repoName}: ${err.message}`);
+            this.logger.error(`Failed to refetch repository ${cleanName}: ${err.message}`);
             throw err;
         }
     }
 
     /**
-     * Verifies that a repository is properly configured with both remotes.
-     * @param {string} repoName - The repository name (e.g., "PSBUniverse-core" or "PSBUniverse-core.git")
-     * @returns {Object} Verification result with status and details
+     * Refetches every repository in the saved list, cloning any whose mirror
+     * is missing. This backs the global "Refetch All" button in the header.
+     *
+     * Each repository is recorded as ready or failed so the caller can report
+     * a per-repository summary. One failing repository must never stop the
+     * others from being refetched.
+     *
+     * @returns {Object} { total, results: [{ name, success, cloned, error }] }
      */
-    async verifyRepository(repoName) {
-        try {
-            // Standardize: strip .git if present
-            const cleanName = repoName.replace(/\.git$/, '');
-            const repoPath = path.join(this.git.baseDir, `${cleanName}.git`);
+    async refetchAllRepositories() {
+        const repos = this.loadRepositories();
+        const results = [];
 
-            if (!fs.existsSync(repoPath)) {
-                return {
-                    valid: false,
-                    error: 'Repository directory not found'
-                };
+        this.logger.info(`Refetching all ${repos.length} saved repositories`);
+
+        for (const repo of repos) {
+            try {
+                const result = await this.refetchRepository(repo.name);
+                repo.status = 'ready';
+                results.push({ name: repo.name, success: true, cloned: result.cloned });
+            } catch (err) {
+                // Mark it failed and carry on with the next repository.
+                repo.status = 'failed';
+                results.push({ name: repo.name, success: false, error: err.message });
             }
-
-            // Check if it's a valid bare git repository
-            const isBare = fs.existsSync(path.join(repoPath, 'HEAD'));
-            if (!isBare) {
-                return {
-                    valid: false,
-                    error: `${cleanName} is not a valid Git repository`
-                };
-            }
-
-            // Get remotes
-            const remotes = await this.git.getRemotes(repoPath);
-
-            const hasOrigin = remotes.origin !== undefined;
-            const hasProd = remotes.prod !== undefined;
-
-            if (!hasOrigin || !hasProd) {
-                return {
-                    valid: false,
-                    error: `Missing remotes. Found: ${Object.keys(remotes).join(', ')}`,
-                    remotes: remotes
-                };
-            }
-
-            return {
-                valid: true,
-                remotes: remotes
-            };
-        } catch (err) {
-            this.logger.error(`Failed to verify repository ${repoName}: ${err.message}`);
-            return {
-                valid: false,
-                error: err.message
-            };
         }
+
+        this.saveRepositories(repos);
+
+        const failed = results.filter(r => !r.success).length;
+        if (failed === 0) {
+            this.logger.success(`Refetch all complete: ${results.length} repositories`);
+        } else {
+            this.logger.warn(`Refetch all finished with ${failed} failure(s) out of ${results.length}`);
+        }
+
+        return { total: results.length, results: results };
     }
 
     /**
@@ -278,43 +327,6 @@ class RepositoryService {
             };
         } catch (err) {
             this.logger.error(`Failed to compare branches: ${err.message}`);
-            throw err;
-        }
-    }
-
-    /**
-     * Refreshes a repository by fetching the latest data from origin AND prod.
-     * @param {string} repoName - The repository name (e.g., "PSBUniverse-core" or "PSBUniverse-core.git")
-     * @returns {Object} Result object with success status
-     */
-    async refreshRepository(repoName) {
-        try {
-            // Standardize: strip .git if present
-            const cleanName = repoName.replace(/\.git$/, '');
-            const repoPath = path.join(this.git.baseDir, `${cleanName}.git`);
-
-            if (!fs.existsSync(repoPath)) {
-                throw new Error(`Repository ${cleanName} not found`);
-            }
-
-            this.logger.info(`Refreshing repository: ${cleanName}`);
-
-            // Fetch from origin (DEV)
-            await this.git.fetchOrigin(repoPath);
-            this.logger.info(`Fetched origin for ${cleanName}`);
-
-            // Fetch from prod (PROD), but don't fail if prod doesn't exist yet
-            try {
-                await this.git.fetchProd(repoPath);
-                this.logger.info(`Fetched prod for ${cleanName}`);
-            } catch (err) {
-                this.logger.warn(`Prod remote not available for ${cleanName}: ${err.message}`);
-            }
-
-            this.logger.success(`Repository ${cleanName} refreshed successfully`);
-            return { success: true, status: 'ready' };
-        } catch (err) {
-            this.logger.error(`Failed to refresh repository ${repoName}: ${err.message}`);
             throw err;
         }
     }

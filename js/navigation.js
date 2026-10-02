@@ -152,6 +152,20 @@ function loadPageScript(src) {
     });
 }
 
+/**
+ * Reloads whichever page is currently on screen.
+ *
+ * The global "Refetch All" button lives in the shell (not in a page), but it
+ * changes repository state that the visible page shows — e.g. the Repositories
+ * table. Calling this redraws the current page so the user sees the result.
+ */
+function reloadCurrentPage() {
+    if (currentPage) {
+        return navigateTo(currentPage);
+    }
+    return Promise.resolve();
+}
+
 // ─── Initialize ──────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -15,7 +15,7 @@ DEV Repo -> Review -> git fetch origin -> git push prod main -> PROD Repo
 
 ## Features
 
-- **Repository Manager** — add, remove, refresh, and verify Git mirror repositories. Supports scanning a directory for existing mirrors and auto-registering them.
+- **Repository Manager** — add, refetch, and delete Git mirror repositories. Refetch clones the mirror if it is missing from disk, then fetches the latest from DEV and PROD. Nothing is cloned automatically at startup; use the header's **Refetch All** button to refetch and clone every saved repository at once.
 - **Dashboard** — quick overview of all registered repositories.
 - **Promote** — side-by-side DEV vs PROD commit history for a branch, with unpromoted DEV commits flagged as Pending. One-click promote (fetch + push) with a confirmation dialog.
 - **Compare** — shows commits present in DEV but not yet in PROD, plus a summary (commit count, changed files, latest commit on each side).

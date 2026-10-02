@@ -68,46 +68,6 @@ function initializeServices() {
 }
 
 /**
- * Ensures every repository listed in configuration has a corresponding
- * bare mirror on disk. Runs on every startup. If GitHubPromotion/<name>.git
- * is missing (e.g. after cloning the ReleaseManager project itself onto a
- * new machine), it is cloned automatically. Existing mirrors are left
- * untouched. One failing repository does not block the others or stop
- * the app from starting.
- */
-async function provisionRepositories() {
-    const configuredRepos = repositoryService.loadRepositories();
-    if (configuredRepos.length === 0) return;
-
-    logger.info(`Checking ${configuredRepos.length} configured repositories for missing local mirrors...`);
-
-    for (const repo of configuredRepos) {
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repo.name}.git`);
-
-        if (fs.existsSync(repoPath)) {
-            continue;
-        }
-
-        logger.info(`Mirror missing for ${repo.name}, cloning automatically...`);
-        try {
-            const result = await repositoryService.cloneRepository(repo.devRepo, repo.prodRepo, repo.name);
-            // Update the config entry in place with the fresh status,
-            // without duplicating or reordering existing entries.
-            Object.assign(repo, result.repository);
-            logger.success(`Auto-provisioned repository: ${repo.name}`);
-        } catch (err) {
-            logger.error(`Failed to auto-provision ${repo.name}: ${err.message}`);
-            // Continue to the next repo rather than throwing — a single
-            // broken/renamed/deleted remote should not prevent the app
-            // from starting or block provisioning of the others.
-        }
-    }
-
-    repositoryService.saveRepositories(configuredRepos);
-    logger.info('Repository provisioning check complete');
-}
-
-/**
  * Returns the list of mirror repositories found in the GitHubPromotion directory.
  * Each repository is a bare Git mirror.
  */
@@ -174,46 +134,40 @@ function registerIpcHandlers() {
     });
 
     /**
-     * Removes a mirror repository from disk and configuration.
-     * Expects: { repoName } (without .git extension)
+     * Deletes a repository: removes the cloned mirror folder from disk AND
+     * drops the entry from the saved list, so nothing re-creates it later.
+     * Expects: { repoName } (with or without the .git extension)
      */
-    ipcMain.handle('repositories:remove', async (event, { repoName }) => {
-        console.log('[main] repositories:remove received:', repoName);
+    ipcMain.handle('repositories:delete', async (event, { repoName }) => {
         // Normalize: strip .git if present
         const cleanName = repoName.replace(/\.git$/, '');
-        console.log('[main] removing with clean name:', cleanName);
         await repositoryService.deleteRepository(cleanName);
-        
-        // Remove from configuration
+
+        // Remove from the saved configuration too, otherwise the repository
+        // would still be listed and could be re-cloned by a later Refetch.
         const repos = repositoryService.loadRepositories();
-        const filtered = repos.filter(r => r.name !== cleanName);
-        repositoryService.saveRepositories(filtered);
-        
-        logger.info(`Repository removed: ${cleanName}`);
-        console.log('[main] repositories:remove completed');
+        repositoryService.saveRepositories(repos.filter(r => r.name !== cleanName));
+
+        logger.info(`Repository deleted: ${cleanName}`);
         return { success: true };
     });
 
     /**
-     * Verifies a repository's remote configuration.
+     * Refetches a single repository, cloning its mirror first if missing.
      * Expects: { repoName }
      */
-    ipcMain.handle('repositories:verify', async (event, { repoName }) => {
-        console.log('[main] repositories:verify received:', repoName);
-        const result = await repositoryService.verifyRepository(repoName);
-        console.log('[main] repositories:verify result:', result);
+    ipcMain.handle('repositories:refetch', async (event, { repoName }) => {
+        const result = await repositoryService.refetchRepository(repoName);
         return result;
     });
 
     /**
-     * Refreshes a repository by fetching from origin.
-     * Expects: { repoName }
+     * Refetches every saved repository, cloning any whose mirror is missing.
+     * This is what the global "Refetch All" button in the header calls.
+     * Expects: nothing
      */
-    ipcMain.handle('repositories:refresh', async (event, { repoName }) => {
-        console.log('[main] repositories:refresh received:', repoName);
-        const result = await repositoryService.refreshRepository(repoName);
-        console.log('[main] repositories:refresh result:', result);
-        return result;
+    ipcMain.handle('repositories:refetchAll', async () => {
+        return await repositoryService.refetchAllRepositories();
     });
 
     /**
@@ -479,7 +433,9 @@ function registerIpcHandlers() {
 app.whenReady().then(async () => {
     initializeServices();
     registerIpcHandlers();
-    await provisionRepositories();
+    // NOTE: mirrors are deliberately NOT cloned at startup. GitHubPromotion is
+    // only populated when the user clicks Refetch (per repo) or Refetch All
+    // (header button), so a deleted mirror stays deleted until asked for.
     createWindow();
 
     app.on('activate', () => {

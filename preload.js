@@ -15,17 +15,17 @@ contextBridge.exposeInMainWorld('api', {
         console.log('[preload] addRepository invoked:', { repoName, devRepoUrl, prodRepoUrl });
         return ipcRenderer.invoke('repositories:add', { repoName, devRepoUrl, prodRepoUrl });
     },
-    removeRepository: (repoName) => {
-        console.log('[preload] removeRepository invoked:', repoName);
-        return ipcRenderer.invoke('repositories:remove', { repoName });
+    deleteRepository: (repoName) => {
+        return ipcRenderer.invoke('repositories:delete', { repoName });
     },
-    verifyRepository: (repoName) => {
-        console.log('[preload] verifyRepository invoked:', repoName);
-        return ipcRenderer.invoke('repositories:verify', { repoName });
+    // Refetch clones the mirror first if it is missing from disk, then
+    // fetches the latest from both DEV (origin) and PROD (prod).
+    refetchRepository: (repoName) => {
+        return ipcRenderer.invoke('repositories:refetch', { repoName });
     },
-    refreshRepository: (repoName) => {
-        console.log('[preload] refreshRepository invoked:', repoName);
-        return ipcRenderer.invoke('repositories:refresh', { repoName });
+    // Refetches every saved repository (backs the header "Refetch All" button).
+    refetchAllRepositories: () => {
+        return ipcRenderer.invoke('repositories:refetchAll');
     },
     scanRepositories: () => {
         console.log('[preload] scanRepositories invoked');

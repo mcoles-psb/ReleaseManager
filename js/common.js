@@ -328,6 +328,55 @@ function showLoadingState(container) {
     `;
 }
 
+/**
+ * Refetches every saved repository: any mirror that is missing from disk is
+ * cloned from DEV, and all mirrors are brought up to date from DEV and PROD.
+ *
+ * This is the global equivalent of the per-repository Refetch button. It is
+ * the only way mirrors get (re)created — nothing is cloned at startup, so a
+ * repository deleted with Delete stays deleted until Refetch is used.
+ */
+async function refetchAllRepositories() {
+    const confirmed = await window.api.confirm(
+        'Refetch All Repositories',
+        'Refetch and clone all saved repositories?',
+        'Any repository missing from GitHubPromotion will be cloned. This can take several minutes.'
+    );
+    if (!confirmed) return;
+
+    const btn = document.getElementById('btn-refetch-all');
+    if (btn) btn.disabled = true;
+
+    setStatus('Refetching all repositories...', 'busy');
+    showProgress('Refetching All Repositories', 'Starting refetch...');
+
+    try {
+        const result = await window.api.refetchAllRepositories();
+        hideProgress();
+
+        const failed = result.results.filter(r => !r.success);
+        const cloned = result.results.filter(r => r.cloned).map(r => r.name);
+
+        if (failed.length === 0) {
+            const clonedNote = cloned.length > 0 ? ` (cloned: ${cloned.join(', ')})` : '';
+            showToast(`Refetched ${result.total} repositories${clonedNote}`, 'success');
+            setStatus('Refetch complete', 'success');
+        } else {
+            showToast(`Refetched ${result.total - failed.length} of ${result.total}. Failed: ${failed.map(f => f.name).join(', ')}`, 'error');
+            setStatus('Refetch finished with errors', 'error');
+        }
+
+        // Redraw the visible page so its tables reflect the new state
+        await reloadCurrentPage();
+    } catch (err) {
+        hideProgress();
+        showToast(`Failed to refetch all repositories: ${err.message}`, 'error');
+        setStatus('Refetch failed', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
 // ─── Initialize Log Console ──────────────────────────────────────────────────
 
 /**
@@ -363,6 +412,11 @@ function initShellButtons() {
     const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
     if (confirmCancelBtn) {
         confirmCancelBtn.addEventListener('click', closeConfirmDialog);
+    }
+
+    const refetchAllBtn = document.getElementById('btn-refetch-all');
+    if (refetchAllBtn) {
+        refetchAllBtn.addEventListener('click', refetchAllRepositories);
     }
 }
 

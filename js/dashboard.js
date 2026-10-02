@@ -62,7 +62,7 @@ function renderRepoTable(repos) {
         const repoName = repo.name || repo;
         const safeName = escapeHtml(repoName);
 
-        // The Remove button carries the repository name in a data attribute
+        // The Delete button carries the repository name in a data attribute
         // instead of an inline onclick="..." handler, which the app's
         // Content-Security-Policy blocks. See attachRepoTableHandlers() below.
         return `
@@ -71,7 +71,7 @@ function renderRepoTable(repos) {
                 <td class="text-muted">-</td>
                 <td><span class="badge badge-success">Mirror</span></td>
                 <td>
-                    <button class="btn btn-sm btn-text" data-action="remove" data-repo="${safeName}">Remove</button>
+                    <button class="btn btn-sm btn-text btn-danger" data-action="delete" data-repo="${safeName}">Delete</button>
                 </td>
             </tr>
         `;
@@ -79,22 +79,22 @@ function renderRepoTable(repos) {
 }
 
 /**
- * Wires up the Remove button in the dashboard table.
+ * Wires up the Delete button in the dashboard table.
  *
  * The listener sits on the table body so that rows re-rendered after a
- * remove or refresh are handled automatically without re-binding.
+ * delete are handled automatically without re-binding.
  */
 function attachRepoTableHandlers() {
     const tbody = document.getElementById('repo-table-body');
     if (!tbody) return;
 
     tbody.addEventListener('click', (event) => {
-        const button = event.target.closest('button[data-action="remove"]');
+        const button = event.target.closest('button[data-action="delete"]');
         if (!button) return;
 
         const repoName = button.dataset.repo;
         if (repoName) {
-            removeRepository(repoName);
+            deleteRepository(repoName);
         }
     });
 }
@@ -179,29 +179,29 @@ function showAddRepositoryDialog() {
 }
 
 /**
- * Removes a repository after user confirmation.
- * @param {string} repoName - The repository name (e.g., "repo.git")
+ * Deletes a repository after user confirmation: removes the cloned mirror
+ * from disk and drops it from the saved list.
+ * @param {string} repoName - The repository name (e.g., "PSBUniverse-core")
  */
-async function removeRepository(repoName) {
-    const cleanName = String(repoName).replace('.git', '');
+async function deleteRepository(repoName) {
     const confirmed = await window.api.confirm(
-        'Remove Repository',
-        `Are you sure you want to remove "${cleanName}"?`,
-        'This will permanently delete the mirror repository from disk. This action cannot be undone.'
+        'Delete Repository',
+        `Delete "${repoName}"?`,
+        'This permanently deletes the cloned mirror folder from disk and removes the repository from the saved list. This cannot be undone.'
     );
 
     if (!confirmed) return;
 
-    showProgress('Removing Repository', `Removing ${cleanName}...`);
+    showProgress('Deleting Repository', `Deleting ${repoName}...`);
 
     try {
-        await window.api.removeRepository(cleanName);
+        await window.api.deleteRepository(repoName);
         hideProgress();
-        showToast('Repository removed', 'success');
+        showToast('Repository deleted', 'success');
         await loadRepositories();
     } catch (err) {
         hideProgress();
-        showToast(`Failed to remove repository: ${err.message}`, 'error');
+        showToast(`Failed to delete repository: ${err.message}`, 'error');
     }
 }
 })();

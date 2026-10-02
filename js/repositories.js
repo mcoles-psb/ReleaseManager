@@ -3,7 +3,7 @@
 
     /**
      * Repository Manager page logic.
-     * Manages Git bare mirror repositories: add, remove, refresh, verify.
+     * Manages Git bare mirror repositories: add, refetch, delete.
      */
 
     let repoData = [];
@@ -26,7 +26,7 @@ window.pageInit = async function () {
         scanBtn.addEventListener('click', scanForMirrors);
     }
 
-    // Handle Refresh / Verify / Remove for every row in the table
+    // Handle Refetch / Delete for every row in the table
     attachRepoTableHandlers();
 };
 
@@ -111,9 +111,8 @@ function renderRepoTable(repos) {
                 <td>${statusBadge}</td>
                 <td class="text-muted">-</td>
                 <td>
-                    <button class="btn btn-sm btn-text" data-action="refresh" data-repo="${safeName}">Refresh</button>
-                    <button class="btn btn-sm btn-text" data-action="verify" data-repo="${safeName}">Verify</button>
-                    <button class="btn btn-sm btn-text btn-danger" data-action="remove" data-repo="${safeName}">Remove</button>
+                    <button class="btn btn-sm btn-text" data-action="refetch" data-repo="${safeName}">Refetch</button>
+                    <button class="btn btn-sm btn-text btn-danger" data-action="delete" data-repo="${safeName}">Delete</button>
                 </td>
             </tr>
         `;
@@ -121,12 +120,12 @@ function renderRepoTable(repos) {
 }
 
 /**
- * Wires up the Refresh / Verify / Remove buttons in the repository table.
+ * Wires up the Refetch / Delete buttons in the repository table.
  *
  * The listener is attached to the table body once (rather than to each button)
  * because the table is rebuilt from scratch every time the repository list is
  * loaded. Listening on the parent means newly rendered rows are handled
- * automatically, with no need to re-bind after every refresh.
+ * automatically, with no need to re-bind after every refetch.
  */
 function attachRepoTableHandlers() {
     const tbody = document.getElementById('repo-table-body');
@@ -142,14 +141,11 @@ function attachRepoTableHandlers() {
         if (!repoName) return;
 
         switch (button.dataset.action) {
-            case 'refresh':
-                refreshRepository(repoName);
+            case 'refetch':
+                refetchRepository(repoName);
                 break;
-            case 'verify':
-                verifyRepository(repoName);
-                break;
-            case 'remove':
-                removeRepository(repoName);
+            case 'delete':
+                deleteRepository(repoName);
                 break;
         }
     });
@@ -304,78 +300,60 @@ function showAddRepositoryDialog() {
 }
 
 /**
- * Removes a repository after user confirmation.
+ * Deletes a repository after user confirmation.
+ *
+ * This removes the cloned mirror from GitHubPromotion AND drops the
+ * repository from the saved list, so it will not reappear. It only comes
+ * back if the user explicitly clones it again (Add Repository) or refetches
+ * it after re-adding it.
  * @param {string} repoName - The repository name (e.g., "PSBUniverse-core")
  */
-async function removeRepository(repoName) {
-    console.log('[renderer] removeRepository called with:', repoName);
+async function deleteRepository(repoName) {
     const confirmed = await window.api.confirm(
-        'Remove Repository',
-        `Are you sure you want to remove "${repoName}"?`,
-        'This will permanently delete the mirror repository from disk. This action cannot be undone.'
+        'Delete Repository',
+        `Delete "${repoName}"?`,
+        'This permanently deletes the cloned mirror folder from disk and removes the repository from the saved list. You can clone it again later with Add Repository. This cannot be undone.'
     );
 
     if (!confirmed) return;
 
-    showProgress('Removing Repository', `Removing ${repoName}...`);
+    showProgress('Deleting Repository', `Deleting ${repoName}...`);
 
     try {
-        await window.api.removeRepository(`${repoName}.git`);
+        await window.api.deleteRepository(`${repoName}.git`);
         hideProgress();
-        showToast(`Repository "${repoName}" removed`, 'success');
+        showToast(`Repository "${repoName}" deleted`, 'success');
         await loadRepositories();
     } catch (err) {
         hideProgress();
-        showToast(`Failed to remove repository: ${err.message}`, 'error');
+        showToast(`Failed to delete repository: ${err.message}`, 'error');
     }
 }
 
 /**
- * Verifies a repository's remote configuration.
+ * Refetches a single repository: clones its mirror if it is missing from
+ * disk, then fetches the latest from DEV and PROD.
  * @param {string} repoName - The repository name (e.g., "PSBUniverse-core")
  */
-async function verifyRepository(repoName) {
-    console.log('[renderer] verifyRepository called with:', repoName);
-    setStatus(`Verifying ${repoName}...`, 'busy');
+async function refetchRepository(repoName) {
+    setStatus(`Refetching ${repoName}...`, 'busy');
+    showProgress('Refetching Repository', `Fetching latest for ${repoName}...`);
 
     try {
-        const result = await window.api.verifyRepository(`${repoName}.git`);
-        console.log('[renderer] verifyRepository result:', result);
-        
-        if (result.valid) {
-            showToast(`Repository "${repoName}" is properly configured`, 'success');
-            setStatus('Verification successful', 'success');
+        const result = await window.api.refetchRepository(`${repoName}.git`);
+        hideProgress();
+
+        if (result.cloned) {
+            showToast(`"${repoName}" was missing and has been cloned and fetched`, 'success');
         } else {
-            showToast(`Verification failed: ${result.error}`, 'error');
-            setStatus('Verification failed', 'error');
+            showToast(`"${repoName}" refetched successfully`, 'success');
         }
-    } catch (err) {
-        showToast(`Failed to verify repository: ${err.message}`, 'error');
-        setStatus('Verification failed', 'error');
-    }
-}
-
-/**
- * Refreshes a repository by fetching from origin.
- * @param {string} repoName - The repository name (e.g., "PSBUniverse-core")
- */
-async function refreshRepository(repoName) {
-    console.log('[renderer] refreshRepository called with:', repoName);
-    setStatus(`Refreshing ${repoName}...`, 'busy');
-    showProgress('Refreshing Repository', `Fetching latest from ${repoName}...`);
-
-    try {
-        await window.api.refreshRepository(`${repoName}.git`);
-        console.log('[renderer] refreshRepository completed');
-        hideProgress();
-        showToast(`Repository "${repoName}" refreshed successfully`, 'success');
-        setStatus('Refresh complete', 'success');
+        setStatus('Refetch complete', 'success');
         await loadRepositories();
     } catch (err) {
-        console.error('[renderer] refreshRepository failed:', err);
         hideProgress();
-        showToast(`Failed to refresh repository: ${err.message}`, 'error');
-        setStatus('Refresh failed', 'error');
+        showToast(`Failed to refetch repository: ${err.message}`, 'error');
+        setStatus('Refetch failed', 'error');
     }
 }
 })();

@@ -35,6 +35,17 @@
     color: var(--accent-primary);
 }
 
+/* Container for the global Refetch All button shown in the header.
+   The header itself is a drag region, so the button needs no-drag to be
+   clickable rather than dragging the window. */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: 16px;
+    -webkit-app-region: no-drag;
+}
+
 .header-status {
     display: flex;
     align-items: center;
