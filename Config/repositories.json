@@ -9,15 +9,6 @@
     "status": "ready"
   },
   {
-    "name": "PSB_GutterApp",
-    "path": "GitHubPromotion/PSB_GutterApp.git",
-    "devRepo": "https://github.com/PSBUniverse-DEV/PSB_GutterApp.git",
-    "prodRepo": "https://github.com/PSBUniverse-PROD/PSB_GutterApp.git",
-    "defaultBranch": "main",
-    "enabled": true,
-    "status": "ready"
-  },
-  {
     "name": "PSB_ProjectMap",
     "path": "GitHubPromotion/PSB_ProjectMap.git",
     "devRepo": "https://github.com/PSBUniverse-DEV/PSB_ProjectMap.git",
@@ -27,28 +18,10 @@
     "status": "ready"
   },
   {
-    "name": "PSB_OHDApp",
-    "path": "GitHubPromotion/PSB_OHDApp.git",
-    "devRepo": "https://github.com/PSBUniverse-DEV/PSB_OHDApp.git",
-    "prodRepo": "https://github.com/PSBUniverse-PROD/PSB_OHDApp.git",
-    "defaultBranch": "main",
-    "enabled": true,
-    "status": "ready"
-  },
-  {
     "name": "PSB_Time-Management",
     "path": "GitHubPromotion/PSB_Time-Management.git",
     "devRepo": "https://github.com/PSBUniverse-DEV/PSB_Time-Management.git",
     "prodRepo": "https://github.com/PSBUniverse-PROD/PSB_Time-Management.git",
-    "defaultBranch": "main",
-    "enabled": true,
-    "status": "ready"
-  },
-  {
-    "name": "PSB_WorkflowManagementApp",
-    "path": "GitHubPromotion/PSB_WorkflowManagementApp.git",
-    "devRepo": "https://github.com/PSBUniverse-DEV/PSB_WorkflowManagementApp.git",
-    "prodRepo": "https://github.com/PSBUniverse-PROD/PSB_WorkflowManagementApp.git",
     "defaultBranch": "main",
     "enabled": true,
     "status": "ready"
