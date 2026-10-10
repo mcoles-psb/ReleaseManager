@@ -22,6 +22,7 @@ DEV Repo -> Review -> git fetch origin -> git push prod main -> PROD Repo
 - **History** — browse PROD's commit history for any repository/branch.
 - **Revert** — safely revert a specific PROD commit using git revert (creates a new commit, does not rewrite history).
 - **Settings** — configure DEV/PROD org names, mirror directory, default branch, log retention, and confirmation prompts.
+- **Sync Core** — keeps its own list of project working folders (added with **+ Add Project**, removed with **Remove**), shows whether each is behind core, and runs core's `scripts/sync-repo.ps1` for one project or for all of them. This is the one feature that uses working folders rather than the bare mirrors, and it is independent of the Repositories page.
 - **Log Console** — persistent, timestamped log of every Git operation, with daily rotating log files on disk.
 
 ## Requirements

@@ -1,0 +1,37 @@
+<!-- Sync Core Page - Merge the latest core into each project's working folder -->
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">Sync Core to Projects</span>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="btn-core-sync-add">+ Add Project</button>
+            <button class="btn btn-secondary btn-sm" id="btn-core-sync-refresh">Refresh</button>
+            <button class="btn btn-primary btn-sm" id="btn-core-sync-all">Sync All</button>
+        </div>
+    </div>
+    <p class="text-muted" id="core-sync-summary" style="font-size:12px;margin-bottom:10px;">Loading...</p>
+    <div class="table-wrapper" style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Project</th>
+                    <th>Working Folder</th>
+                    <th>Branch</th>
+                    <th>Local Changes</th>
+                    <th>Core</th>
+                    <th>Last Sync</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="core-sync-table-body">
+                <tr>
+                    <td colspan="7" class="text-muted" style="text-align:center; padding:24px;">
+                        Loading projects...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <p class="text-muted" style="font-size:11px;margin-top:10px;">
+        Sync merges the latest core into the project's main branch in its working folder and pushes the result to the DEV repository. Uncommitted work is stashed and restored. Progress is shown in the Log Console below. Remove only takes a project off this list; its files are not touched.
+    </p>
+</div>

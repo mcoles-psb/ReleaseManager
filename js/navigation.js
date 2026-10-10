@@ -40,6 +40,11 @@ const PAGES = {
         html: 'pages/history.html',
         js: 'js/history.js'
     },
+    'sync-core': {
+        title: 'Sync Core',
+        html: 'pages/sync-core.html',
+        js: 'js/sync-core.js'
+    },
     settings: {
         title: 'Settings',
         html: 'pages/settings.html',

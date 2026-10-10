@@ -54,6 +54,13 @@ contextBridge.exposeInMainWorld('api', {
     createTag: (repoName, tagName, commitHash) => ipcRenderer.invoke('tags:create', { repoName, tagName, commitHash }),
     pushTag: (repoName, tagName) => ipcRenderer.invoke('tags:push', { repoName, tagName }),
 
+    // Core Sync Operations
+    getCoreSyncStatus: () => ipcRenderer.invoke('coreSync:status'),
+    runCoreSync: (repoName) => ipcRenderer.invoke('coreSync:run', { repoName }),
+    // Opens a folder picker in the main process; the renderer never sends a path.
+    addCoreSyncProject: () => ipcRenderer.invoke('coreSync:addProject'),
+    removeCoreSyncProject: (name) => ipcRenderer.invoke('coreSync:removeProject', { name }),
+
     // Settings Operations
     getSettings: () => ipcRenderer.invoke('settings:get'),
     saveSettings: (settings) => ipcRenderer.invoke('settings:save', { settings }),

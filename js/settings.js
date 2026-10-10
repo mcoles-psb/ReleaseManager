@@ -35,6 +35,8 @@ async function loadSettings() {
         document.getElementById('setting-default-branch').value = settings.defaultBranch || 'main';
         document.getElementById('setting-log-retention').value = settings.logRetentionDays || 30;
         document.getElementById('setting-git-path').value = settings.gitExecutable || 'git';
+        document.getElementById('setting-working-dir').value = settings.workingDirectory || '';
+        document.getElementById('setting-core-repo').value = settings.coreRepoName || 'PSBUniverse-core';
         document.getElementById('setting-confirm-promote').checked = settings.confirmBeforePromote !== false;
         document.getElementById('setting-confirm-revert').checked = settings.confirmBeforeRevert !== false;
     } catch (err) {
@@ -53,6 +55,8 @@ async function saveSettings() {
         defaultBranch: document.getElementById('setting-default-branch').value.trim() || 'main',
         logRetentionDays: parseInt(document.getElementById('setting-log-retention').value, 10) || 30,
         gitExecutable: document.getElementById('setting-git-path').value.trim() || 'git',
+        workingDirectory: document.getElementById('setting-working-dir').value.trim(),
+        coreRepoName: document.getElementById('setting-core-repo').value.trim() || 'PSBUniverse-core',
         confirmBeforePromote: document.getElementById('setting-confirm-promote').checked,
         confirmBeforeRevert: document.getElementById('setting-confirm-revert').checked
     };

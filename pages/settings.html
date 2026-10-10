@@ -38,6 +38,19 @@
         </p>
     </div>
 
+    <div class="form-group">
+        <label class="form-label">Core Location (Core Sync)</label>
+        <input type="text" class="form-input" id="setting-working-dir" placeholder="Folder that contains Release Manager">
+        <p class="text-muted" style="font-size:11px;margin-top:4px;">
+            Folder that contains core's working copy (a sub-folder named after the core repository below). Sync uses core's own copy of scripts/sync-repo.ps1 when it is found here, otherwise each project's copy. Projects themselves are added on the Sync Core page. Leave empty to use the folder that contains Release Manager.
+        </p>
+    </div>
+
+    <div class="form-group">
+        <label class="form-label">Core Repository Name (Core Sync)</label>
+        <input type="text" class="form-input" id="setting-core-repo" placeholder="PSBUniverse-core">
+    </div>
+
     <div class="checkbox-group">
         <input type="checkbox" id="setting-confirm-promote" checked>
         <label for="setting-confirm-promote">Show confirmation dialog before promoting to PROD</label>

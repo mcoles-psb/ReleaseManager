@@ -27,7 +27,11 @@ class SettingsService {
             logRetentionDays: 30,
             confirmBeforePromote: true,
             confirmBeforeRevert: true,
-            gitExecutable: 'git'
+            gitExecutable: 'git',
+            // Core Sync: folder that holds the working copies of each module.
+            // Empty = the folder that contains Release Manager.
+            workingDirectory: '',
+            coreRepoName: 'PSBUniverse-core'
         };
     }
 

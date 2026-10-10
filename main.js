@@ -8,6 +8,7 @@ const Logger = require('./services/logger');
 const GitService = require('./services/gitService');
 const RepositoryService = require('./services/repositoryService');
 const TagService = require('./services/tagService');
+const CoreSyncService = require('./services/coreSyncService');
 
 let mainWindow = null;
 let settingsService = null;
@@ -15,6 +16,7 @@ let logger = null;
 let gitService = null;
 let repositoryService = null;
 let tagService = null;
+let coreSyncService = null;
 
 /**
  * Creates the main application window with a fixed size
@@ -65,6 +67,7 @@ function initializeServices() {
     gitService = new GitService(path.join(__dirname, 'GitHubPromotion'), logger);
     repositoryService = new RepositoryService(gitService, logger);
     tagService = new TagService(gitService, logger);
+    coreSyncService = new CoreSyncService(__dirname, settingsService, logger);
 }
 
 /**
@@ -345,6 +348,59 @@ function registerIpcHandlers() {
         const repoPath = path.join(__dirname, 'GitHubPromotion', `${repoName.replace(/\.git$/, '')}.git`);
         await tagService.pushTag(repoPath, tagName);
         logger.info(`Tag pushed to PROD: ${repoName} ${tagName}`);
+        return { success: true };
+    });
+
+    // ── Core Sync Operations ────────────────────────────────────────────────
+
+    // The Sync Core page keeps its own project list (Config/coreSyncProjects.json).
+    // The registered repositories are passed only so that list can be seeded the
+    // first time it is read; after that they have no effect on it.
+
+    /**
+     * Returns the state of every project in the Sync Core list.
+     * Expects: nothing
+     */
+    ipcMain.handle('coreSync:status', async () => {
+        return await coreSyncService.getStatus(repositoryService.loadRepositories());
+    });
+
+    /**
+     * Runs the core sync script for one project in the Sync Core list. The
+     * renderer sends a project name, never a path.
+     * Expects: { repoName }
+     */
+    ipcMain.handle('coreSync:run', async (event, { repoName }) => {
+        return await coreSyncService.syncProject(String(repoName || ''), repositoryService.loadRepositories());
+    });
+
+    /**
+     * Lets the user pick a working folder and adds it to the Sync Core list.
+     * Returns { added, canceled?, project?, message? }.
+     * Expects: nothing
+     */
+    ipcMain.handle('coreSync:addProject', async () => {
+        const picked = await dialog.showOpenDialog(mainWindow, {
+            title: 'Select the project working folder',
+            properties: ['openDirectory']
+        });
+        if (picked.canceled || !picked.filePaths || picked.filePaths.length === 0) {
+            return { added: false, canceled: true };
+        }
+        try {
+            const project = coreSyncService.addProject(picked.filePaths[0], repositoryService.loadRepositories());
+            return { added: true, project };
+        } catch (err) {
+            return { added: false, message: err.message };
+        }
+    });
+
+    /**
+     * Removes a project from the Sync Core list. No files are touched.
+     * Expects: { name }
+     */
+    ipcMain.handle('coreSync:removeProject', async (event, { name }) => {
+        coreSyncService.removeProject(String(name || ''), repositoryService.loadRepositories());
         return { success: true };
     });
 
