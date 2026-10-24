@@ -25,14 +25,5 @@
     "defaultBranch": "main",
     "enabled": true,
     "status": "ready"
-  },
-  {
-    "name": "PSB_GutterApp",
-    "path": "GitHubPromotion/PSB_GutterApp.git",
-    "devRepo": "https://github.com/PSBUniverse-DEV/PSB_GutterApp.git",
-    "prodRepo": "https://github.com/PSBUniverse-PROD/PSB_GutterApp.git",
-    "defaultBranch": "main",
-    "enabled": true,
-    "status": "ready"
   }
 ]
