@@ -7,6 +7,8 @@
     .db-diff-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .db-diff-table td.db-diff-def { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
     .db-diff-row { cursor: pointer; }
+    .db-diff-table .db-pick-cell { text-align: center; cursor: default; padding-left: 6px; padding-right: 6px; }
+    .db-pick-cell input { cursor: pointer; }
     .db-diff-row:focus-visible { outline: 1px solid var(--accent-primary); outline-offset: -1px; }
     .db-diff-table tbody tr.db-diff-row.is-open { background: var(--bg-active); }
     /* Row detail: both full definitions side by side. */
@@ -88,10 +90,11 @@
         </div>
         <button class="btn btn-secondary btn-sm" id="btn-db-script" disabled>Get Script</button>
     </div>
-    <p class="text-muted" style="font-size:11px;margin-bottom:6px;">Click a row to see both full definitions, with the lines found on one side only marked.</p>
+    <p class="text-muted" style="font-size:11px;margin-bottom:6px;">Tick the rows the script should include (the box at the top ticks every row shown; ticks stay when you change filters). Click a row to see both full definitions, with the lines found on one side only marked.</p>
     <div class="table-wrapper db-diff-wrapper">
         <table class="data-table db-diff-table">
             <colgroup>
+                <col style="width:36px;">
                 <col style="width:120px;">
                 <col style="width:120px;">
                 <col style="width:72px;">
@@ -102,6 +105,7 @@
             </colgroup>
             <thead>
                 <tr>
+                    <th class="db-pick-cell"><input type="checkbox" id="db-pick-all" aria-label="Tick every row shown" disabled></th>
                     <th>Difference</th>
                     <th>Type</th>
                     <th>App</th>
@@ -113,7 +117,7 @@
             </thead>
             <tbody id="db-compare-body">
                 <tr>
-                    <td colspan="7" class="text-muted" style="text-align:center; padding:24px;">
+                    <td colspan="8" class="text-muted" style="text-align:center; padding:24px;">
                         No compare run yet.
                     </td>
                 </tr>
@@ -132,7 +136,7 @@
         <textarea class="form-input" id="db-script-text" readonly spellcheck="false" style="height:360px;font-family:Consolas, 'Courier New', monospace;font-size:12px;white-space:pre;"></textarea>
     </div>
     <p class="text-muted" style="font-size:11px;margin-top:10px;">
-        Read-only: the databases are only looked at, never changed. Items of a table that exists on one side only are not listed separately; the table's own row covers them. Export CSV saves the rows currently shown to the Reports folder. Get Script writes a script for the rows currently shown that makes the target match the source. Run it on the target yourself: as it is, it is a preview (every step runs and is reported, then everything is rolled back); set rm__apply to true at its top to apply. Steps that would lose data fail with the reason, steps already done are skipped, and nothing is ever removed. Release Manager never runs it.
+        Read-only: the databases are only looked at, never changed. Items of a table that exists on one side only are not listed separately; the table's own row covers them. Export CSV saves the rows currently shown to the Reports folder. Get Script writes a script for the rows you tick that makes the target match the source. Run it on the target yourself: as it is, it is a preview (every step runs and is reported, then everything is rolled back); set rm__apply to true at its top to apply. Steps that would lose data fail with the reason, steps already done are skipped, and nothing is ever removed. Release Manager never runs it.
     </p>
 </div>
 

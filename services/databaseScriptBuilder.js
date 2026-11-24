@@ -1,6 +1,6 @@
 /**
  * Builds a SQL script that makes a TARGET database match a SOURCE database
- * for the Database Compare rows shown. TEXT ONLY: Release Manager never runs it.
+ * for the Database Compare rows ticked. TEXT ONLY: Release Manager never runs it.
  *
  * How the script runs (Postgres, for example the Supabase SQL editor):
  *  - It is ONE anonymous DO block, so it is all-or-nothing in any tool.
@@ -586,9 +586,9 @@ function buildScript(options) {
         '-- ============================================================================',
         '-- Release Manager - Database Compare script',
         `-- Source: ${sourceName}    Target: ${targetName}    Schema: ${schema}`,
-        `-- Built: ${new Date().toISOString()} from ${rows.length} row${rows.length === 1 ? '' : 's'} shown on the page`,
+        `-- Built: ${new Date().toISOString()} from ${rows.length} row${rows.length === 1 ? '' : 's'} ticked on the page`,
         '--',
-        `-- Makes ${targetName} match ${sourceName} for the rows shown. Release Manager never runs this.`,
+        `-- Makes ${targetName} match ${sourceName} for the rows ticked. Release Manager never runs this.`,
         '--',
         `-- HOW TO RUN (on ${targetName}, for example in the Supabase SQL editor):`,
         '--   1. PREVIEW: run it as it is. Every step runs, then EVERYTHING IS ROLLED BACK.',
@@ -608,7 +608,7 @@ function buildScript(options) {
     out.push('-- ============================================================================');
 
     if (liveCount === 0) {
-        out.push('', `-- Nothing to do: ${targetName} already has everything in the rows shown, or only REVIEW notes are left.`);
+        out.push('', `-- Nothing to do: ${targetName} already has everything in the rows ticked, or only REVIEW notes are left.`);
     } else {
         const body = [
             'DECLARE',

@@ -28,6 +28,8 @@
     let lastResult = null;
     // Row ids whose detail is open; cleared on every new compare.
     const expanded = new Set();
+    // Row ids ticked for the script; kept across filters, cleared on every new compare.
+    const picked = new Set();
     // Result of the last test per connection, for as long as this page stays open.
     const lastTests = {};
 
@@ -43,16 +45,44 @@ window.pageInit = async function () {
     const compareBody = document.getElementById('db-compare-body');
     if (compareBody) {
         compareBody.addEventListener('click', (event) => {
+            // The tick box cell only ticks; it does not open or close the row.
+            if (event.target.closest('.db-pick-cell')) return;
             // Selecting text in a row should not open or close it.
             if (window.getSelection && String(window.getSelection())) return;
             toggleRow(event.target.closest('tr.db-diff-row'));
         });
         compareBody.addEventListener('keydown', (event) => {
             if (event.key !== 'Enter' && event.key !== ' ') return;
+            if (event.target.closest('.db-pick-cell')) return;
             const row = event.target.closest('tr.db-diff-row');
             if (!row) return;
             event.preventDefault();
             toggleRow(row);
+        });
+        compareBody.addEventListener('change', (event) => {
+            const box = event.target.closest('input.db-pick');
+            if (!box) return;
+            if (box.checked) {
+                picked.add(box.dataset.id);
+            } else {
+                picked.delete(box.dataset.id);
+            }
+            updatePicks();
+        });
+    }
+
+    // Header box: ticks or unticks every row currently shown.
+    const pickAll = document.getElementById('db-pick-all');
+    if (pickAll) {
+        pickAll.addEventListener('change', () => {
+            filteredRows().forEach((row) => {
+                if (pickAll.checked) {
+                    picked.add(row.id);
+                } else {
+                    picked.delete(row.id);
+                }
+            });
+            renderCompare();
         });
     }
     ['db-filter-category', 'db-filter-app', 'db-filter-status'].forEach((id) => {
@@ -100,7 +130,7 @@ function setBusy(value) {
     const exportBtn = document.getElementById('btn-db-export');
     if (exportBtn) exportBtn.disabled = busy || !lastResult;
     const scriptBtn = document.getElementById('btn-db-script');
-    if (scriptBtn) scriptBtn.disabled = busy || !lastResult;
+    if (scriptBtn) scriptBtn.disabled = busy || !lastResult || picked.size === 0;
     renderConnections();
 }
 
@@ -292,6 +322,7 @@ async function runCompare() {
         lastResult = response.result;
         hideScript();
         expanded.clear();
+        picked.clear();
         fillFilterLabels();
         renderCompare();
         setStatus('Compare complete', 'success');
@@ -370,7 +401,7 @@ function summaryText(shownCount) {
         .join(', ');
     const total = lastResult.rows.length;
     const shown = shownCount === total ? '' : ` (showing ${shownCount})`;
-    return `${lastResult.left} vs ${lastResult.right}, schema ${lastResult.schema}: ${total} difference${total === 1 ? '' : 's'}${shown}. Counts ${lastResult.left}/${lastResult.right}: ${counts}.`;
+    return `${lastResult.left} vs ${lastResult.right}, schema ${lastResult.schema}: ${total} difference${total === 1 ? '' : 's'}${shown}, ${picked.size} ticked for the script. Counts ${lastResult.left}/${lastResult.right}: ${counts}.`;
 }
 
 /**
@@ -382,12 +413,12 @@ function renderCompare() {
     if (!lastResult || !tbody) return;
 
     const rows = filteredRows();
-    if (summary) summary.textContent = summaryText(rows.length);
+    updatePicks(rows);
 
     if (lastResult.rows.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" style="text-align:center;padding:24px;">
+                <td colspan="8" style="text-align:center;padding:24px;">
                     <span class="badge badge-success">Same</span>
                     <span class="text-muted">No differences found in schema ${escapeHtml(lastResult.schema)}.</span>
                 </td>
@@ -398,7 +429,7 @@ function renderCompare() {
     if (rows.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" style="text-align:center;padding:24px;">
+                <td colspan="8" style="text-align:center;padding:24px;">
                     <span class="text-muted">No differences match the filters.</span>
                 </td>
             </tr>
@@ -411,6 +442,7 @@ function renderCompare() {
         const open = expanded.has(row.id);
         const line = `
             <tr class="db-diff-row${open ? ' is-open' : ''}" data-id="${escapeHtml(row.id)}" tabindex="0" aria-expanded="${open}">
+                <td class="db-pick-cell"><input type="checkbox" class="db-pick" data-id="${escapeHtml(row.id)}" aria-label="Include ${escapeHtml(row.name)} in the script" ${picked.has(row.id) ? 'checked' : ''}></td>
                 <td>${statusBadge(row.status)}</td>
                 <td>${escapeHtml(CATEGORY_LABELS[row.category] || row.category)}</td>
                 <td><span class="text-muted">${escapeHtml(row.app)}</span></td>
@@ -426,7 +458,7 @@ function renderCompare() {
         const rightText = row.rightDetail || row.right;
         return `${line}
             <tr class="db-diff-detail">
-                <td colspan="7">
+                <td colspan="8">
                     <div class="db-diff-sides">
                         <div>
                             <div class="db-diff-side-title">${escapeHtml(lastResult.left)}</div>
@@ -471,6 +503,31 @@ function toggleRow(row) {
 }
 
 /**
+ * Updates what shows the ticks: the summary line, the header box (ticked,
+ * partly ticked or not) and the Get Script button with its count.
+ * @param {object[]} rows - the rows currently shown
+ */
+function updatePicks(rows = filteredRows()) {
+    if (!lastResult) return;
+    const summary = document.getElementById('db-compare-summary');
+    if (summary) summary.textContent = summaryText(rows.length);
+
+    const pickAll = document.getElementById('db-pick-all');
+    if (pickAll) {
+        const shownPicked = rows.filter(row => picked.has(row.id)).length;
+        pickAll.disabled = rows.length === 0;
+        pickAll.checked = rows.length > 0 && shownPicked === rows.length;
+        pickAll.indeterminate = shownPicked > 0 && shownPicked < rows.length;
+    }
+
+    const scriptBtn = document.getElementById('btn-db-script');
+    if (scriptBtn) {
+        scriptBtn.textContent = picked.size ? `Get Script (${picked.size})` : 'Get Script';
+        scriptBtn.disabled = busy || picked.size === 0;
+    }
+}
+
+/**
  * Saves the rows currently shown to a CSV file in the Reports folder and
  * opens that folder.
  */
@@ -503,9 +560,8 @@ async function exportCompare() {
  */
 async function buildScript() {
     if (busy || !lastResult) return;
-    const rows = filteredRows();
-    if (rows.length === 0) {
-        showToast('No rows are shown. Change the filters first.', 'error');
+    if (picked.size === 0) {
+        showToast('Tick the rows the script should include first.', 'error');
         return;
     }
     const direction = valueOf('db-script-direction') || 'left-to-right';
@@ -513,7 +569,7 @@ async function buildScript() {
     const includeFunctions = Boolean(includeBox && includeBox.checked);
 
     try {
-        const response = await window.api.buildDbScript(direction, rows.map(row => row.id), includeFunctions);
+        const response = await window.api.buildDbScript(direction, [...picked], includeFunctions);
         if (!response.success) {
             showToast(response.message || 'Could not build the script.', 'error');
             return;
