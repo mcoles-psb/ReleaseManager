@@ -102,6 +102,12 @@ function buildScript(options) {
         return `to_regprocedure(${lit(`${qi(schema)}.${qi(signature.slice(0, open))}${signature.slice(open)}`)})`;
     };
     const byId = (items) => new Map(items.map(item => [`${item.category}|${item.key}`, item]));
+    // Views and materialized views on either side. Their columns follow the
+    // tables they read, so they never get a column step of their own.
+    const viewNames = new Set([...sourceItems, ...targetItems]
+        .filter(item => item.category === 'tables' && (item.raw.kind === 'view' || item.raw.kind === 'materialized view'))
+        .map(item => item.name));
+    const viewColumns = [];
     const sourceById = byId(sourceItems);
     const targetById = byId(targetItems);
 
@@ -136,8 +142,8 @@ function buildScript(options) {
      * checks: [{ kind: 'fail' | 'note', when, message }] — when the query finds
      * a row, 'fail' stops the step (FAILED) and 'note' leaves it (NOTE).
      */
-    function addStep(section, label, { exists = null, checks = [], statements }) {
-        steps[section].push({ label, exists, checks, statements });
+    function addStep(section, label, { exists = null, checks = [], statements, rebuildViews = null }) {
+        steps[section].push({ label, exists, checks, statements, rebuildViews });
     }
 
     // ── Things the target is missing ───────────────────────────────────────
@@ -296,6 +302,10 @@ function buildScript(options) {
     }
 
     function addNewColumn(raw) {
+        if (viewNames.has(raw.table_name)) {
+            viewColumns.push(`-- ${raw.table_name}.${raw.column_name}`);
+            return;
+        }
         // Required with no default would fail on a table that already has rows:
         // it is added as optional, then a separate step makes it required.
         const allowNotNull = Boolean(raw.default_value) || Boolean(raw.identity) || raw.generated === 's';
@@ -365,6 +375,10 @@ function buildScript(options) {
         const where = qualified(table);
         const col = qi(column);
         const name = `${table}.${column}`;
+        if (viewNames.has(table)) {
+            viewColumns.push(`-- ${name}`);
+            return;
+        }
         const head = [`source (${sourceName}): ${src.display}`, `target (${targetName}): ${tgt.display}`];
 
         if (!s.not_null && t.not_null) {
@@ -394,7 +408,8 @@ function buildScript(options) {
                         when: `SELECT 1 FROM ${where} WHERE ${col} IS NOT NULL AND (${col}::${s.data_type})::${t.data_type} IS DISTINCT FROM ${col}`,
                         message: `${name}: some values would change, be cut off or not fit in ${s.data_type}. Nothing was changed.`
                     }],
-                    statements
+                    statements,
+                    rebuildViews: { table, column }
                 });
             }
         }
@@ -553,9 +568,75 @@ function buildScript(options) {
         step.checks.filter(check => check.kind === 'fail').forEach(check => {
             work.push(`IF EXISTS (${check.when}) THEN`, `    RAISE EXCEPTION USING MESSAGE = ${lit(check.message)};`, 'END IF;');
         });
+        const rebuild = step.rebuildViews;
+        if (rebuild) {
+            const tableLit = lit(qualified(rebuild.table));
+            const kindSql = "CASE WHEN rm__j->>'relkind' = 'm' THEN 'MATERIALIZED VIEW' ELSE 'VIEW' END";
+            // Views that read this column (and views built on those views) block a
+            // type change: each is saved with its options, comment, grants and
+            // indexes, dropped deepest-first, and re-created after the change.
+            work.push(
+                'FOR rm__v IN',
+                '    WITH RECURSIVE deps(oid, depth) AS (',
+                '        SELECT r.ev_class, 1',
+                '        FROM pg_depend d JOIN pg_rewrite r ON r.oid = d.objid',
+                `        WHERE d.classid = 'pg_rewrite'::regclass AND d.refobjid = to_regclass(${tableLit})`,
+                `          AND d.refobjsubid = (SELECT a.attnum FROM pg_attribute a WHERE a.attrelid = to_regclass(${tableLit}) AND a.attname = ${lit(rebuild.column)})`,
+                '          AND r.ev_class <> d.refobjid',
+                '        UNION',
+                '        SELECT r.ev_class, deps.depth + 1',
+                "        FROM deps JOIN pg_depend d ON d.refobjid = deps.oid AND d.classid = 'pg_rewrite'::regclass",
+                '        JOIN pg_rewrite r ON r.oid = d.objid',
+                '        WHERE r.ev_class <> deps.oid AND deps.depth < 50',
+                '    )',
+                '    SELECT max(deps.depth) AS depth, c.relkind::text AS relkind,',
+                "           format('%I.%I', n.nspname, c.relname) AS name,",
+                '           pg_get_viewdef(c.oid) AS def, c.reloptions AS options,',
+                "           obj_description(c.oid, 'pg_class') AS comment,",
+                "           (SELECT array_agg(format('GRANT %s ON %I.%I TO %s', a.privilege_type, n.nspname, c.relname,",
+                "                   CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END))",
+                '              FROM aclexplode(c.relacl) a WHERE a.grantee <> c.relowner) AS grants,',
+                '           (SELECT array_agg(pg_get_indexdef(i.indexrelid)) FROM pg_index i WHERE i.indrelid = c.oid) AS indexes',
+                '    FROM deps JOIN pg_class c ON c.oid = deps.oid JOIN pg_namespace n ON n.oid = c.relnamespace',
+                "    WHERE c.relkind IN ('v', 'm')",
+                '    GROUP BY c.oid, c.relkind, n.nspname, c.relname, c.reloptions, c.relacl, c.relowner',
+                'LOOP',
+                '    rm__saved := rm__saved || jsonb_build_array(to_jsonb(rm__v));',
+                'END LOOP;',
+                "FOR rm__j IN SELECT value FROM jsonb_array_elements(rm__saved) ORDER BY (value->>'depth')::int DESC LOOP",
+                `    EXECUTE format('DROP %s %s', ${kindSql}, rm__j->>'name');`,
+                'END LOOP;'
+            );
+        }
         // EXECUTE runs each statement exactly as written (no variable swaps).
         step.statements.forEach(statement => work.push(`EXECUTE ${dollarQuote(trimSql(statement), 'rm_sql')};`));
-        work.push(report('OK'));
+        if (rebuild) {
+            const kindSql = "CASE WHEN rm__j->>'relkind' = 'm' THEN 'MATERIALIZED VIEW' ELSE 'VIEW' END";
+            const arrayOf = (key) => `CASE WHEN jsonb_typeof(rm__j->'${key}') = 'array' THEN rm__j->'${key}' ELSE '[]'::jsonb END`;
+            work.push(
+                "FOR rm__j IN SELECT value FROM jsonb_array_elements(rm__saved) ORDER BY (value->>'depth')::int LOOP",
+                "    EXECUTE format('CREATE %s %s%s AS %s',",
+                `        ${kindSql},`,
+                "        rm__j->>'name',",
+                "        CASE WHEN jsonb_typeof(rm__j->'options') = 'array'",
+                "             THEN ' WITH (' || (SELECT string_agg(o, ', ') FROM jsonb_array_elements_text(rm__j->'options') o) || ')'",
+                "             ELSE '' END,",
+                "        rtrim(rm__j->>'def', E'; \\n'));",
+                "    IF rm__j->>'comment' IS NOT NULL THEN",
+                `        EXECUTE format('COMMENT ON %s %s IS %L', ${kindSql}, rm__j->>'name', rm__j->>'comment');`,
+                '    END IF;',
+                `    FOR rm__x IN SELECT jsonb_array_elements_text(${arrayOf('indexes')}) LOOP`,
+                '        EXECUTE rm__x;',
+                '    END LOOP;',
+                `    FOR rm__x IN SELECT jsonb_array_elements_text(${arrayOf('grants')}) LOOP`,
+                '        EXECUTE rm__x;',
+                '    END LOOP;',
+                'END LOOP;'
+            );
+            work.push(report('OK', "CASE WHEN jsonb_array_length(rm__saved) > 0 THEN format(' (rebuilt %s view(s) that read it)', jsonb_array_length(rm__saved)) ELSE '' END"));
+        } else {
+            work.push(report('OK'));
+        }
 
         const inner = [];
         if (branches.length) {
@@ -572,6 +653,13 @@ function buildScript(options) {
         return [
             `    -- Step ${number}: ${step.label}`,
             `    rm__step := ${number};`,
+            ...(step.rebuildViews ? [
+                '    DECLARE',
+                "        rm__saved jsonb := '[]';",
+                '        rm__v record;',
+                '        rm__j jsonb;',
+                '        rm__x text;'
+            ] : []),
             '    BEGIN',
             ...inner.map(line => `        ${line}`),
             '    EXCEPTION WHEN OTHERS THEN',
@@ -652,6 +740,9 @@ function buildScript(options) {
 
     if (review.length) {
         out.push('', '-- ════ REVIEW: not in the steps above, decide by hand (nothing here runs) ════', '', review.join('\n\n'));
+    }
+    if (viewColumns.length) {
+        out.push('', '-- ════ VIEW COLUMNS: no step needed, they follow the tables the view reads ════', '', ...viewColumns);
     }
     if (manual.length) {
         out.push('', '-- ════ NOT SCRIPTED: add these by hand ════', '', ...manual);
