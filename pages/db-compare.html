@@ -27,6 +27,7 @@
             <label class="form-label" for="db-filter-category">Type</label>
             <select class="form-select" id="db-filter-category">
                 <option value="">All types</option>
+                <option value="types">Types (enums / domains)</option>
                 <option value="tables">Tables / views</option>
                 <option value="columns">Columns</option>
                 <option value="keys">Keys / constraints</option>
@@ -53,6 +54,20 @@
             </select>
         </div>
     </div>
+    <div class="form-inline" style="margin-bottom:10px;">
+        <div class="form-group">
+            <label class="form-label" for="db-script-direction">Script</label>
+            <select class="form-select" id="db-script-direction">
+                <option value="left-to-right">Add to right what left has</option>
+                <option value="right-to-left">Add to left what right has</option>
+            </select>
+        </div>
+        <div class="checkbox-group" style="flex:1;">
+            <input type="checkbox" id="db-script-functions">
+            <label for="db-script-functions">Include functions and triggers</label>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="btn-db-script" disabled>Get Script</button>
+    </div>
     <div class="table-wrapper" style="overflow-x:auto;">
         <table class="data-table">
             <thead>
@@ -75,8 +90,19 @@
             </tbody>
         </table>
     </div>
+    <div id="db-script-panel" class="hidden" style="margin-top:12px;">
+        <div class="section-header">
+            <span class="section-title" id="db-script-title">Script</span>
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-secondary btn-sm" id="btn-db-script-copy">Copy</button>
+                <button class="btn btn-secondary btn-sm" id="btn-db-script-save">Save .sql</button>
+            </div>
+        </div>
+        <p class="text-muted" id="db-script-summary" style="font-size:12px;margin-bottom:8px;"></p>
+        <textarea class="form-input" id="db-script-text" readonly spellcheck="false" style="height:360px;font-family:Consolas, 'Courier New', monospace;font-size:12px;white-space:pre;"></textarea>
+    </div>
     <p class="text-muted" style="font-size:11px;margin-top:10px;">
-        Read-only: the databases are only looked at, never changed. Items of a table that exists on one side only are not listed separately; the table's own row covers them. Export CSV saves the rows currently shown to the Reports folder.
+        Read-only: the databases are only looked at, never changed. Items of a table that exists on one side only are not listed separately; the table's own row covers them. Export CSV saves the rows currently shown to the Reports folder. Get Script writes a script for the rows currently shown: it only adds what the target is missing, checks before every step so it is safe to run twice, and never removes anything. Release Manager never runs it; review it and run it on the target yourself.
     </p>
 </div>
 

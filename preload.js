@@ -69,6 +69,9 @@ contextBridge.exposeInMainWorld('api', {
     testDbConnection: (name) => ipcRenderer.invoke('db:testConnection', { name }),
     runDbCompare: (leftName, rightName, schema) => ipcRenderer.invoke('db:compare', { leftName, rightName, schema }),
     exportDbCompare: (result) => ipcRenderer.invoke('db:exportCompare', { result }),
+    // Scripts are text only; the main process never runs them.
+    buildDbScript: (direction, ids, includeFunctions) => ipcRenderer.invoke('db:script', { direction, ids, includeFunctions }),
+    saveDbScript: () => ipcRenderer.invoke('db:saveScript'),
 
     // Settings Operations
     getSettings: () => ipcRenderer.invoke('settings:get'),

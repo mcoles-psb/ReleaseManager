@@ -12,6 +12,7 @@
      */
 
     const CATEGORY_LABELS = {
+        types: 'Type',
         tables: 'Table / view',
         columns: 'Column',
         keys: 'Key / constraint',
@@ -32,6 +33,9 @@ window.pageInit = async function () {
     bindClick('btn-db-conn-save', saveConnection);
     bindClick('btn-db-compare', runCompare);
     bindClick('btn-db-export', exportCompare);
+    bindClick('btn-db-script', buildScript);
+    bindClick('btn-db-script-copy', copyScript);
+    bindClick('btn-db-script-save', saveScript);
     ['db-filter-category', 'db-filter-app', 'db-filter-status'].forEach((id) => {
         const select = document.getElementById(id);
         if (select) select.addEventListener('change', renderCompare);
@@ -76,6 +80,8 @@ function setBusy(value) {
     });
     const exportBtn = document.getElementById('btn-db-export');
     if (exportBtn) exportBtn.disabled = busy || !lastResult;
+    const scriptBtn = document.getElementById('btn-db-script');
+    if (scriptBtn) scriptBtn.disabled = busy || !lastResult;
     renderConnections();
 }
 
@@ -265,6 +271,7 @@ async function runCompare() {
             throw new Error(response.message || 'Compare failed.');
         }
         lastResult = response.result;
+        hideScript();
         fillFilterLabels();
         renderCompare();
         setStatus('Compare complete', 'success');
@@ -296,6 +303,14 @@ function fillFilterLabels() {
     const rightHeader = document.getElementById('db-col-right');
     if (leftHeader) leftHeader.textContent = lastResult.left;
     if (rightHeader) rightHeader.textContent = lastResult.right;
+
+    const directionSelect = document.getElementById('db-script-direction');
+    if (directionSelect) {
+        const toRight = directionSelect.querySelector('option[value="left-to-right"]');
+        const toLeft = directionSelect.querySelector('option[value="right-to-left"]');
+        if (toRight) toRight.textContent = `Add to ${lastResult.right} what ${lastResult.left} has`;
+        if (toLeft) toLeft.textContent = `Add to ${lastResult.left} what ${lastResult.right} has`;
+    }
 
     const appSelect = document.getElementById('db-filter-app');
     if (appSelect) {
@@ -407,6 +422,102 @@ async function exportCompare() {
         window.api.openPath(response.folder);
     } catch (err) {
         showToast(`Could not export: ${err.message}`, 'error');
+    }
+}
+
+// ─── Script ──────────────────────────────────────────────────────────────────
+
+/**
+ * Asks the main process for a script, for the rows currently shown, that
+ * adds to one side what the other side has. Text only: never run.
+ */
+async function buildScript() {
+    if (busy || !lastResult) return;
+    const rows = filteredRows();
+    if (rows.length === 0) {
+        showToast('No rows are shown. Change the filters first.', 'error');
+        return;
+    }
+    const direction = valueOf('db-script-direction') || 'left-to-right';
+    const includeBox = document.getElementById('db-script-functions');
+    const includeFunctions = Boolean(includeBox && includeBox.checked);
+
+    try {
+        const response = await window.api.buildDbScript(direction, rows.map(row => row.id), includeFunctions);
+        if (!response.success) {
+            showToast(response.message || 'Could not build the script.', 'error');
+            return;
+        }
+        showScript(response);
+        refreshLogConsole();
+    } catch (err) {
+        showToast(`Could not build the script: ${err.message}`, 'error');
+    }
+}
+
+function plural(count, word) {
+    return `${count} ${word}${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * Shows the built script and its summary.
+ */
+function showScript(response) {
+    const panel = document.getElementById('db-script-panel');
+    const title = document.getElementById('db-script-title');
+    const summary = document.getElementById('db-script-summary');
+    const text = document.getElementById('db-script-text');
+    if (!panel || !text) return;
+
+    if (title) title.textContent = `Script: add to ${response.targetName} what ${response.sourceName} has`;
+    if (summary) {
+        const parts = [
+            `${plural(response.liveCount, 'step')} to run`,
+            plural(response.reviewCount, 'review note'),
+            `${plural(response.onlyTargetCount, 'item')} only in ${response.targetName} (not removed)`
+        ];
+        if (response.skipped) parts.push(`${plural(response.skipped, 'function/trigger item')} skipped`);
+        summary.textContent = `${parts.join(', ')}. Release Manager does not run it: review it, then run it on ${response.targetName} yourself.`;
+    }
+    text.value = response.script;
+    panel.classList.remove('hidden');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function hideScript() {
+    const panel = document.getElementById('db-script-panel');
+    if (panel) panel.classList.add('hidden');
+    const text = document.getElementById('db-script-text');
+    if (text) text.value = '';
+}
+
+async function copyScript() {
+    const text = document.getElementById('db-script-text');
+    if (!text || !text.value) return;
+    try {
+        await window.api.writeToClipboard(text.value);
+        showToast('Script copied.', 'success');
+    } catch (err) {
+        showToast(`Could not copy: ${err.message}`, 'error');
+    }
+}
+
+/**
+ * Saves the last built script as a .sql file in the Reports folder and opens
+ * that folder.
+ */
+async function saveScript() {
+    try {
+        const response = await window.api.saveDbScript();
+        if (!response.success) {
+            showToast(response.message || 'Could not save the script.', 'error');
+            return;
+        }
+        showToast(`Saved ${response.fileName} in the Reports folder.`, 'success');
+        refreshLogConsole();
+        window.api.openPath(response.folder);
+    } catch (err) {
+        showToast(`Could not save the script: ${err.message}`, 'error');
     }
 }
 })();

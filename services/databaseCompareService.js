@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { buildScript } = require('./databaseScriptBuilder');
 
 /**
  * Compares the structure of two saved databases (read-only).
@@ -10,9 +11,10 @@ const path = require('path');
  * Nothing is ever written to either database.
  */
 
-const CATEGORY_ORDER = ['tables', 'columns', 'keys', 'indexes', 'triggers', 'functions', 'sequences', 'policies'];
+const CATEGORY_ORDER = ['types', 'tables', 'columns', 'keys', 'indexes', 'triggers', 'functions', 'sequences', 'policies'];
 
 const CATEGORY_LABELS = {
+    types: 'Type',
     tables: 'Table / view',
     columns: 'Column',
     keys: 'Key / constraint',
@@ -28,18 +30,50 @@ const CATEGORY_LABELS = {
 // two databases, value decides "Different", display is what the page shows.
 const QUERIES = [
     {
+        // Enum and domain types. Types that belong to an extension are left out.
+        category: 'types',
+        text: `
+            SELECT t.typname AS name,
+                   CASE t.typtype WHEN 'e' THEN 'enum' ELSE 'domain' END AS kind,
+                   (SELECT json_agg(e.enumlabel ORDER BY e.enumsortorder)
+                      FROM pg_enum e WHERE e.enumtypid = t.oid) AS enum_values,
+                   CASE WHEN t.typtype = 'd' THEN format_type(t.typbasetype, t.typtypmod) END AS base_type,
+                   t.typnotnull AS not_null,
+                   t.typdefault AS default_value,
+                   (SELECT string_agg(pg_get_constraintdef(con.oid), ' ' ORDER BY con.conname)
+                      FROM pg_constraint con WHERE con.contypid = t.oid AND con.contype = 'c') AS checks
+            FROM pg_type t
+            JOIN pg_namespace n ON n.oid = t.typnamespace
+            WHERE n.nspname = $1 AND t.typtype IN ('e', 'd')
+              AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                              WHERE d.classid = 'pg_type'::regclass AND d.objid = t.oid AND d.deptype = 'e')`,
+        toItem: (row) => {
+            let display;
+            if (row.kind === 'enum') {
+                display = `enum: ${(row.enum_values || []).join(', ')}`;
+            } else {
+                display = `domain over ${row.base_type}`;
+                if (row.not_null) display += ' not null';
+                if (row.default_value) display += ` default ${row.default_value}`;
+                if (row.checks) display += ` ${row.checks}`;
+            }
+            return { table: '', name: row.name, key: row.name, display, value: display };
+        }
+    },
+    {
         category: 'tables',
         text: `
             SELECT c.relname AS table_name,
                    CASE c.relkind WHEN 'r' THEN 'table' WHEN 'p' THEN 'partitioned table' WHEN 'v' THEN 'view'
                                   WHEN 'm' THEN 'materialized view' WHEN 'f' THEN 'foreign table' END AS kind,
-                   c.relrowsecurity AS rls_enabled
+                   c.relrowsecurity AS rls_enabled,
+                   CASE WHEN c.relkind IN ('v', 'm') THEN pg_get_viewdef(c.oid, true) END AS view_definition
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = $1 AND c.relkind IN ('r', 'p', 'v', 'm', 'f')`,
         toItem: (row) => {
             const display = row.kind.includes('table') ? `${row.kind}, RLS ${row.rls_enabled ? 'on' : 'off'}` : row.kind;
-            return { table: row.table_name, name: row.table_name, key: row.table_name, display, value: display };
+            return { table: row.table_name, name: row.table_name, key: row.table_name, display, value: `${display}|${row.view_definition || ''}` };
         }
     },
     {
@@ -50,7 +84,8 @@ const QUERIES = [
                    a.attnotnull AS not_null,
                    a.attidentity AS identity,
                    a.attgenerated AS generated,
-                   pg_get_expr(d.adbin, d.adrelid) AS default_value
+                   pg_get_expr(d.adbin, d.adrelid) AS default_value,
+                   a.attnum
             FROM pg_attribute a
             JOIN pg_class c ON c.oid = a.attrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -134,10 +169,17 @@ const QUERIES = [
     {
         category: 'sequences',
         text: `
-            SELECT s.sequencename AS name, s.data_type::text AS data_type,
-                   s.start_value::text AS start_value, s.increment_by::text AS increment_by
-            FROM pg_sequences s
-            WHERE s.schemaname = $1`,
+            SELECT c.relname AS name, format_type(s.seqtypid, NULL) AS data_type,
+                   s.seqstart::text AS start_value, s.seqincrement::text AS increment_by,
+                   s.seqmin::text AS min_value, s.seqmax::text AS max_value,
+                   s.seqcache::text AS cache_size, s.seqcycle AS cycle
+            FROM pg_sequence s
+            JOIN pg_class c ON c.oid = s.seqrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $1
+              -- Identity column sequences are created by Postgres with the column.
+              AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                              WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'i')`,
         toItem: (row) => {
             const display = `${row.data_type}, start ${row.start_value}, step ${row.increment_by}`;
             return { table: '', name: row.name, key: row.name, display, value: display };
@@ -177,6 +219,7 @@ function makeRow(status, left, right) {
         rightText += ' (details differ)';
     }
     return {
+        id: `${item.category}|${item.key}`,
         status,
         category: item.category,
         app: appPrefix(item.table || item.name),
@@ -249,7 +292,7 @@ class DatabaseCompareService {
         );
         const items = [];
         QUERIES.forEach((query, index) => {
-            results[index].forEach(row => items.push({ category: query.category, ...query.toItem(row) }));
+            results[index].forEach(row => items.push({ category: query.category, ...query.toItem(row), raw: row }));
         });
         return items;
     }
@@ -271,6 +314,9 @@ class DatabaseCompareService {
             this.getSnapshot(rightName, cleanSchema)
         ]);
         const rows = diffItems(leftItems, rightItems);
+        // Kept in memory only, so a script can be built from this compare.
+        this.lastCompare = { left: leftName, right: rightName, schema: cleanSchema, leftItems, rightItems, rows };
+        this.lastScript = null;
         this.logger.info(`Database compare: ${leftName} vs ${rightName} (schema ${cleanSchema}): ${rows.length} differences`);
 
         return {
@@ -316,6 +362,55 @@ class DatabaseCompareService {
         // The BOM lets Excel open the file as UTF-8.
         fs.writeFileSync(path.join(this.reportsDir, fileName), '\uFEFF' + lines.join('\r\n'), 'utf-8');
         this.logger.info(`Database compare exported: Reports/${fileName}`);
+        return { fileName, folder: 'Reports' };
+    }
+
+    /**
+     * Builds a script, from the last compare, that adds to one side what the
+     * other side has. TEXT ONLY: it is never run by Release Manager.
+     * Expects { direction: 'left-to-right' | 'right-to-left', ids, includeFunctions }.
+     */
+    generateScript({ direction, ids, includeFunctions } = {}) {
+        const last = this.lastCompare;
+        if (!last) {
+            throw new Error('Run Compare first.');
+        }
+        const fromLeft = direction !== 'right-to-left';
+        const sourceName = fromLeft ? last.left : last.right;
+        const targetName = fromLeft ? last.right : last.left;
+        const wanted = new Set(Array.isArray(ids) ? ids : []);
+
+        const result = buildScript({
+            schema: last.schema,
+            sourceName,
+            targetName,
+            sourceItems: fromLeft ? last.leftItems : last.rightItems,
+            targetItems: fromLeft ? last.rightItems : last.leftItems,
+            rows: last.rows.filter(row => wanted.has(row.id)),
+            missingStatus: fromLeft ? 'only-left' : 'only-right',
+            includeFunctions: Boolean(includeFunctions),
+            labels: CATEGORY_LABELS
+        });
+
+        this.lastScript = { text: result.script, sourceName, targetName, schema: last.schema };
+        this.logger.info(`Database script built: ${sourceName} -> ${targetName} (schema ${last.schema}): ${result.liveCount} steps, ${result.reviewCount} review notes`);
+        return { ...result, sourceName, targetName };
+    }
+
+    /**
+     * Saves the last built script as a .sql file in the Reports folder.
+     * Returns { fileName, folder }.
+     */
+    saveScript() {
+        const last = this.lastScript;
+        if (!last) {
+            throw new Error('Get a script first.');
+        }
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const safe = (text) => String(text || '').replace(/[^a-z0-9_-]+/gi, '-');
+        const fileName = `db-script_${safe(last.sourceName)}_to_${safe(last.targetName)}_${safe(last.schema)}_${stamp}.sql`;
+        fs.writeFileSync(path.join(this.reportsDir, fileName), last.text, 'utf-8');
+        this.logger.info(`Database script saved: Reports/${fileName}`);
         return { fileName, folder: 'Reports' };
     }
 }

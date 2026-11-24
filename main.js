@@ -507,6 +507,31 @@ function registerIpcHandlers() {
         }
     });
 
+    /**
+     * Builds a script (text only, never run) that adds to one side what the
+     * other side has, from the last compare and the row ids shown.
+     * Expects: { direction, ids, includeFunctions }
+     */
+    ipcMain.handle('db:script', async (event, { direction, ids, includeFunctions }) => {
+        try {
+            return { success: true, ...databaseCompareService.generateScript({ direction, ids, includeFunctions }) };
+        } catch (err) {
+            return { success: false, message: err.message };
+        }
+    });
+
+    /**
+     * Saves the last built script as a .sql file in the Reports folder.
+     * Expects: nothing
+     */
+    ipcMain.handle('db:saveScript', async () => {
+        try {
+            return { success: true, ...databaseCompareService.saveScript() };
+        } catch (err) {
+            return { success: false, message: err.message };
+        }
+    });
+
     // ── Settings Operations ─────────────────────────────────────────────────
 
     /**
