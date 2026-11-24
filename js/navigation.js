@@ -45,6 +45,11 @@ const PAGES = {
         html: 'pages/sync-core.html',
         js: 'js/sync-core.js'
     },
+    'db-compare': {
+        title: 'Database Compare',
+        html: 'pages/db-compare.html',
+        js: 'js/db-compare.js'
+    },
     settings: {
         title: 'Settings',
         html: 'pages/settings.html',

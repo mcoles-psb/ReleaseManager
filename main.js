@@ -9,6 +9,7 @@ const GitService = require('./services/gitService');
 const RepositoryService = require('./services/repositoryService');
 const TagService = require('./services/tagService');
 const CoreSyncService = require('./services/coreSyncService');
+const DatabaseService = require('./services/databaseService');
 
 let mainWindow = null;
 let settingsService = null;
@@ -17,6 +18,7 @@ let gitService = null;
 let repositoryService = null;
 let tagService = null;
 let coreSyncService = null;
+let databaseService = null;
 
 let dataDir = null;
 
@@ -96,6 +98,7 @@ function initializeServices() {
     repositoryService = new RepositoryService(gitService, logger, path.join(root, 'Config'));
     tagService = new TagService(gitService, logger);
     coreSyncService = new CoreSyncService(root, __dirname, settingsService, logger);
+    databaseService = new DatabaseService(path.join(root, 'Config'), logger);
 }
 
 /**
@@ -430,6 +433,49 @@ function registerIpcHandlers() {
     ipcMain.handle('coreSync:removeProject', async (event, { name }) => {
         coreSyncService.removeProject(String(name || ''), repositoryService.loadRepositories());
         return { success: true };
+    });
+
+    // ── Database Operations ─────────────────────────────────────────────────
+
+    // Saved connections live in Config/databaseConnections.json (git-ignored).
+    // The renderer gets names and hosts back and never sends SQL.
+
+    /**
+     * Returns the saved database connections (name and host only).
+     * Expects: nothing
+     */
+    ipcMain.handle('db:listConnections', async () => {
+        return databaseService.listConnections();
+    });
+
+    /**
+     * Adds a connection, or replaces the one with the same name.
+     * Expects: { name, connectionString }
+     */
+    ipcMain.handle('db:saveConnection', async (event, { name, connectionString }) => {
+        try {
+            databaseService.saveConnection(name, connectionString);
+            return { success: true };
+        } catch (err) {
+            return { success: false, message: err.message };
+        }
+    });
+
+    /**
+     * Removes a saved connection. Nothing in the database is touched.
+     * Expects: { name }
+     */
+    ipcMain.handle('db:removeConnection', async (event, { name }) => {
+        databaseService.removeConnection(String(name || ''));
+        return { success: true };
+    });
+
+    /**
+     * Connects read-only and reports the database name and Postgres version.
+     * Expects: { name }
+     */
+    ipcMain.handle('db:testConnection', async (event, { name }) => {
+        return await databaseService.testConnection(String(name || ''));
     });
 
     // ── Settings Operations ─────────────────────────────────────────────────

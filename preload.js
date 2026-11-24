@@ -61,6 +61,13 @@ contextBridge.exposeInMainWorld('api', {
     addCoreSyncProject: () => ipcRenderer.invoke('coreSync:addProject'),
     removeCoreSyncProject: (name) => ipcRenderer.invoke('coreSync:removeProject', { name }),
 
+    // Database Operations (Database Compare page). A connection string goes to
+    // the main process only when saved; the page never sends SQL.
+    getDbConnections: () => ipcRenderer.invoke('db:listConnections'),
+    saveDbConnection: (name, connectionString) => ipcRenderer.invoke('db:saveConnection', { name, connectionString }),
+    removeDbConnection: (name) => ipcRenderer.invoke('db:removeConnection', { name }),
+    testDbConnection: (name) => ipcRenderer.invoke('db:testConnection', { name }),
+
     // Settings Operations
     getSettings: () => ipcRenderer.invoke('settings:get'),
     saveSettings: (settings) => ipcRenderer.invoke('settings:save', { settings }),

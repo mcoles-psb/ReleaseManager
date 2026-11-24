@@ -5,4 +5,5 @@ Reports/
 GitHubPromotion/
 Config/settings.json
 Config/coreSyncProjects.json
+Config/databaseConnections.json
 *.log

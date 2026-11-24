@@ -1,0 +1,39 @@
+<!-- Database Compare Page - Saved database connections (read-only access) -->
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">Database Connections</span>
+    </div>
+    <div class="table-wrapper" style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Account / Host</th>
+                    <th>Last Test</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="db-conn-table-body">
+                <tr>
+                    <td colspan="4" class="text-muted" style="text-align:center; padding:24px;">
+                        Loading connections...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="form-inline" style="margin-top:12px;">
+        <div class="form-group" style="flex:0 0 160px;">
+            <label class="form-label" for="db-conn-name">Name</label>
+            <input type="text" class="form-input" id="db-conn-name" placeholder="QAS or PROD">
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="db-conn-string">Connection String</label>
+            <input type="password" class="form-input" id="db-conn-string" placeholder="postgresql://postgres.xxxx:password@aws-0-xxxx.pooler.supabase.com:5432/postgres" autocomplete="off" spellcheck="false">
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-db-conn-save">Save &amp; Test</button>
+    </div>
+    <p class="text-muted" style="font-size:11px;margin-top:10px;">
+        In Supabase, open the project, click Connect and copy the Session pooler connection string, then put the database password in place of [YOUR-PASSWORD]. Special characters in the password (such as @ # / ? %) must be URL-encoded. Saving with a name that already exists replaces that connection. Connections are kept on this computer only, in Config/databaseConnections.json, which is never committed to git. Every check runs read-only.
+    </p>
+</div>
