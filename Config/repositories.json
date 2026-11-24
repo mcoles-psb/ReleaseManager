@@ -34,5 +34,14 @@
     "defaultBranch": "main",
     "enabled": true,
     "status": "ready"
+  },
+  {
+    "name": "PSB_MetalBuildingsApp",
+    "path": "GitHubPromotion/PSB_MetalBuildingsApp.git",
+    "devRepo": "https://github.com/PSBUniverse-DEV/PSB_MetalBuildingsApp.git",
+    "prodRepo": "https://github.com/PSBUniverse-PROD/PSB_MetalBuildingsApp.git",
+    "defaultBranch": "main",
+    "enabled": true,
+    "status": "ready"
   }
 ]
