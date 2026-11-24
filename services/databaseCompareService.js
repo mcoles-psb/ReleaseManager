@@ -73,7 +73,8 @@ const QUERIES = [
             WHERE n.nspname = $1 AND c.relkind IN ('r', 'p', 'v', 'm', 'f')`,
         toItem: (row) => {
             const display = row.kind.includes('table') ? `${row.kind}, RLS ${row.rls_enabled ? 'on' : 'off'}` : row.kind;
-            return { table: row.table_name, name: row.table_name, key: row.table_name, display, value: `${display}|${row.view_definition || ''}` };
+            const detail = row.view_definition ? `${display}\n\n${String(row.view_definition).trim()}` : display;
+            return { table: row.table_name, name: row.table_name, key: row.table_name, display, value: `${display}|${row.view_definition || ''}`, detail };
         }
     },
     {
@@ -163,7 +164,7 @@ const QUERIES = [
                               WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`,
         toItem: (row) => {
             const lines = String(row.definition || '').split('\n').length;
-            return { table: '', name: row.signature, key: row.signature, display: `${row.kind}, ${lines} lines`, value: String(row.definition || '') };
+            return { table: '', name: row.signature, key: row.signature, display: `${row.kind}, ${lines} lines`, value: String(row.definition || ''), detail: String(row.definition || '') };
         }
     },
     {
@@ -233,7 +234,10 @@ function makeRow(status, left, right) {
         table: item.table || '',
         name: item.name,
         left: leftText,
-        right: rightText
+        right: rightText,
+        // Full text for the row detail on the page (function bodies, view SQL).
+        leftDetail: left ? (left.detail || left.display) : '',
+        rightDetail: right ? (right.detail || right.display) : ''
     };
 }
 

@@ -1,4 +1,24 @@
 <!-- Database Compare Page - Compare two databases' structure (read-only) -->
+<style>
+    /* Differences table: fits the page, one line per row, header stays visible. */
+    .db-diff-wrapper { max-height: 60vh; overflow: auto; }
+    .db-diff-table { table-layout: fixed; }
+    .db-diff-table thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-tertiary); }
+    .db-diff-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .db-diff-table td.db-diff-def { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+    .db-diff-row { cursor: pointer; }
+    .db-diff-row:focus-visible { outline: 1px solid var(--accent-primary); outline-offset: -1px; }
+    .db-diff-table tbody tr.db-diff-row.is-open { background: var(--bg-active); }
+    /* Row detail: both full definitions side by side. */
+    .db-diff-table tr.db-diff-detail > td { white-space: normal; background: var(--bg-primary); padding: 10px 12px; }
+    .db-diff-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .db-diff-side-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
+    .db-diff-code { font-family: var(--font-mono); font-size: 11px; max-height: 320px; overflow: auto; border: 1px solid var(--border-color); border-radius: 3px; padding: 6px 8px; background: var(--bg-secondary); }
+    .db-line { white-space: pre-wrap; word-break: break-word; min-height: 1.4em; }
+    /* Lines found on one side only: same tones as the "Only in" badges. */
+    .db-line-left { background: rgba(220, 220, 170, 0.15); }
+    .db-line-right { background: rgba(156, 220, 254, 0.15); }
+</style>
 <div class="section">
     <div class="section-header">
         <span class="section-title">Compare Databases</span>
@@ -68,8 +88,18 @@
         </div>
         <button class="btn btn-secondary btn-sm" id="btn-db-script" disabled>Get Script</button>
     </div>
-    <div class="table-wrapper" style="overflow-x:auto;">
-        <table class="data-table">
+    <p class="text-muted" style="font-size:11px;margin-bottom:6px;">Click a row to see both full definitions, with the lines found on one side only marked.</p>
+    <div class="table-wrapper db-diff-wrapper">
+        <table class="data-table db-diff-table">
+            <colgroup>
+                <col style="width:120px;">
+                <col style="width:120px;">
+                <col style="width:72px;">
+                <col style="width:16%;">
+                <col style="width:18%;">
+                <col>
+                <col>
+            </colgroup>
             <thead>
                 <tr>
                     <th>Difference</th>

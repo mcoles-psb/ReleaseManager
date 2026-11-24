@@ -26,6 +26,8 @@
     let connections = [];
     let busy = false;
     let lastResult = null;
+    // Row ids whose detail is open; cleared on every new compare.
+    const expanded = new Set();
     // Result of the last test per connection, for as long as this page stays open.
     const lastTests = {};
 
@@ -36,6 +38,23 @@ window.pageInit = async function () {
     bindClick('btn-db-script', buildScript);
     bindClick('btn-db-script-copy', copyScript);
     bindClick('btn-db-script-save', saveScript);
+
+    // One listener for every differences row (inline handlers are blocked by the CSP).
+    const compareBody = document.getElementById('db-compare-body');
+    if (compareBody) {
+        compareBody.addEventListener('click', (event) => {
+            // Selecting text in a row should not open or close it.
+            if (window.getSelection && String(window.getSelection())) return;
+            toggleRow(event.target.closest('tr.db-diff-row'));
+        });
+        compareBody.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const row = event.target.closest('tr.db-diff-row');
+            if (!row) return;
+            event.preventDefault();
+            toggleRow(row);
+        });
+    }
     ['db-filter-category', 'db-filter-app', 'db-filter-status'].forEach((id) => {
         const select = document.getElementById(id);
         if (select) select.addEventListener('change', renderCompare);
@@ -272,6 +291,7 @@ async function runCompare() {
         }
         lastResult = response.result;
         hideScript();
+        expanded.clear();
         fillFilterLabels();
         renderCompare();
         setStatus('Compare complete', 'success');
@@ -364,7 +384,6 @@ function renderCompare() {
     const rows = filteredRows();
     if (summary) summary.textContent = summaryText(rows.length);
 
-    const cellStyle = 'max-width:320px;white-space:pre-wrap;word-break:break-word;font-size:11px;';
     if (lastResult.rows.length === 0) {
         tbody.innerHTML = `
             <tr>
@@ -387,17 +406,68 @@ function renderCompare() {
         return;
     }
 
-    tbody.innerHTML = rows.map(row => `
-        <tr>
-            <td>${statusBadge(row.status)}</td>
-            <td>${escapeHtml(CATEGORY_LABELS[row.category] || row.category)}</td>
-            <td><span class="text-muted">${escapeHtml(row.app)}</span></td>
-            <td>${escapeHtml(row.table) || '<span class="text-muted">-</span>'}</td>
-            <td><strong>${escapeHtml(row.name)}</strong></td>
-            <td style="${cellStyle}">${escapeHtml(row.left) || '<span class="text-muted">-</span>'}</td>
-            <td style="${cellStyle}">${escapeHtml(row.right) || '<span class="text-muted">-</span>'}</td>
-        </tr>
-    `).join('');
+    const dash = '<span class="text-muted">-</span>';
+    tbody.innerHTML = rows.map(row => {
+        const open = expanded.has(row.id);
+        const line = `
+            <tr class="db-diff-row${open ? ' is-open' : ''}" data-id="${escapeHtml(row.id)}" tabindex="0" aria-expanded="${open}">
+                <td>${statusBadge(row.status)}</td>
+                <td>${escapeHtml(CATEGORY_LABELS[row.category] || row.category)}</td>
+                <td><span class="text-muted">${escapeHtml(row.app)}</span></td>
+                <td title="${escapeHtml(row.table)}">${escapeHtml(row.table) || dash}</td>
+                <td title="${escapeHtml(row.name)}"><strong>${escapeHtml(row.name)}</strong></td>
+                <td class="db-diff-def">${escapeHtml(row.left) || dash}</td>
+                <td class="db-diff-def">${escapeHtml(row.right) || dash}</td>
+            </tr>
+        `;
+        if (!open) return line;
+
+        const leftText = row.leftDetail || row.left;
+        const rightText = row.rightDetail || row.right;
+        return `${line}
+            <tr class="db-diff-detail">
+                <td colspan="7">
+                    <div class="db-diff-sides">
+                        <div>
+                            <div class="db-diff-side-title">${escapeHtml(lastResult.left)}</div>
+                            <div class="db-diff-code">${sideHtml(leftText, rightText, 'left')}</div>
+                        </div>
+                        <div>
+                            <div class="db-diff-side-title">${escapeHtml(lastResult.right)}</div>
+                            <div class="db-diff-code">${sideHtml(rightText, leftText, 'right')}</div>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+/**
+ * One side of a row detail: the full text, one line per line, with the lines
+ * that the other side does not have marked.
+ */
+function sideHtml(text, otherText, side) {
+    if (!text) return '<span class="text-muted">Not in this database.</span>';
+    const otherLines = new Set(String(otherText || '').split('\n').map(item => item.trim()));
+    return String(text).split('\n').map(item => {
+        const marked = otherText && !otherLines.has(item.trim());
+        return `<div class="db-line${marked ? ` db-line-${side}` : ''}">${escapeHtml(item) || '&nbsp;'}</div>`;
+    }).join('');
+}
+
+/**
+ * Opens or closes one row's detail.
+ */
+function toggleRow(row) {
+    if (!row || !row.dataset.id) return;
+    const id = row.dataset.id;
+    if (expanded.has(id)) {
+        expanded.delete(id);
+    } else {
+        expanded.add(id);
+    }
+    renderCompare();
 }
 
 /**
