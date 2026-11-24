@@ -1,4 +1,85 @@
-<!-- Database Compare Page - Saved database connections (read-only access) -->
+<!-- Database Compare Page - Compare two databases' structure (read-only) -->
+<div class="section">
+    <div class="section-header">
+        <span class="section-title">Compare Databases</span>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="btn-db-export" disabled>Export CSV</button>
+            <button class="btn btn-primary btn-sm" id="btn-db-compare">Compare</button>
+        </div>
+    </div>
+    <div class="form-inline">
+        <div class="form-group">
+            <label class="form-label" for="db-left">Compare</label>
+            <select class="form-select" id="db-left"></select>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="db-right">With</label>
+            <select class="form-select" id="db-right"></select>
+        </div>
+        <div class="form-group" style="flex:0 0 160px;">
+            <label class="form-label" for="db-schema">Schema</label>
+            <input type="text" class="form-input" id="db-schema" value="public" spellcheck="false">
+        </div>
+    </div>
+    <p class="text-muted" id="db-compare-summary" style="font-size:12px;margin:10px 0;">Pick two connections and click Compare.</p>
+    <div class="form-inline" style="margin-bottom:10px;">
+        <div class="form-group">
+            <label class="form-label" for="db-filter-category">Type</label>
+            <select class="form-select" id="db-filter-category">
+                <option value="">All types</option>
+                <option value="tables">Tables / views</option>
+                <option value="columns">Columns</option>
+                <option value="keys">Keys / constraints</option>
+                <option value="indexes">Indexes</option>
+                <option value="triggers">Triggers</option>
+                <option value="functions">Functions</option>
+                <option value="sequences">Sequences</option>
+                <option value="policies">Policies</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="db-filter-app">App</label>
+            <select class="form-select" id="db-filter-app">
+                <option value="">All apps</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="db-filter-status">Difference</label>
+            <select class="form-select" id="db-filter-status">
+                <option value="">All differences</option>
+                <option value="only-left">Only in left</option>
+                <option value="only-right">Only in right</option>
+                <option value="different">Different</option>
+            </select>
+        </div>
+    </div>
+    <div class="table-wrapper" style="overflow-x:auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Difference</th>
+                    <th>Type</th>
+                    <th>App</th>
+                    <th>Table</th>
+                    <th>Name</th>
+                    <th id="db-col-left">Left</th>
+                    <th id="db-col-right">Right</th>
+                </tr>
+            </thead>
+            <tbody id="db-compare-body">
+                <tr>
+                    <td colspan="7" class="text-muted" style="text-align:center; padding:24px;">
+                        No compare run yet.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <p class="text-muted" style="font-size:11px;margin-top:10px;">
+        Read-only: the databases are only looked at, never changed. Items of a table that exists on one side only are not listed separately; the table's own row covers them. Export CSV saves the rows currently shown to the Reports folder.
+    </p>
+</div>
+
 <div class="section">
     <div class="section-header">
         <span class="section-title">Database Connections</span>

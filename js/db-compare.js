@@ -2,22 +2,40 @@
     'use strict';
 
     /**
-     * Database Compare page logic (saved connections).
-     * Add or replace a connection, test it, remove it. A connection string is
-     * sent to the main process only when saved; the page only gets names and
-     * hosts back. Every database check runs read-only in the main process.
+     * Database Compare page logic.
+     * - Compare: reads two saved databases' structure (read-only, in the main
+     *   process) and lists what is only on one side or different, with
+     *   filters and a CSV export of the rows shown.
+     * - Connections: add or replace, test, remove. A connection string is sent
+     *   to the main process only when saved; the page only gets names and
+     *   hosts back.
      */
+
+    const CATEGORY_LABELS = {
+        tables: 'Table / view',
+        columns: 'Column',
+        keys: 'Key / constraint',
+        indexes: 'Index',
+        triggers: 'Trigger',
+        functions: 'Function',
+        sequences: 'Sequence',
+        policies: 'Policy'
+    };
 
     let connections = [];
     let busy = false;
+    let lastResult = null;
     // Result of the last test per connection, for as long as this page stays open.
     const lastTests = {};
 
 window.pageInit = async function () {
-    const saveBtn = document.getElementById('btn-db-conn-save');
-    if (saveBtn) {
-        saveBtn.addEventListener('click', saveConnection);
-    }
+    bindClick('btn-db-conn-save', saveConnection);
+    bindClick('btn-db-compare', runCompare);
+    bindClick('btn-db-export', exportCompare);
+    ['db-filter-category', 'db-filter-app', 'db-filter-status'].forEach((id) => {
+        const select = document.getElementById(id);
+        if (select) select.addEventListener('change', renderCompare);
+    });
 
     // One listener for every row's buttons. Inline onclick attributes are
     // blocked by the app's Content-Security-Policy.
@@ -37,6 +55,32 @@ window.pageInit = async function () {
     await loadConnections();
 };
 
+function bindClick(id, handler) {
+    const element = document.getElementById(id);
+    if (element) element.addEventListener('click', handler);
+}
+
+function valueOf(id) {
+    const element = document.getElementById(id);
+    return element ? element.value : '';
+}
+
+/**
+ * Enables or disables the page's buttons while something is running.
+ */
+function setBusy(value) {
+    busy = value;
+    ['btn-db-compare', 'btn-db-conn-save'].forEach((id) => {
+        const button = document.getElementById(id);
+        if (button) button.disabled = busy;
+    });
+    const exportBtn = document.getElementById('btn-db-export');
+    if (exportBtn) exportBtn.disabled = busy || !lastResult;
+    renderConnections();
+}
+
+// ─── Connections ─────────────────────────────────────────────────────────────
+
 /**
  * Reads the saved connections (names and hosts) from the main process.
  */
@@ -48,6 +92,24 @@ async function loadConnections() {
         showToast(`Could not read the saved connections: ${err.message}`, 'error');
     }
     renderConnections();
+    fillConnectionSelects();
+}
+
+/**
+ * Fills the Compare / With pickers, keeping the current choice when it still
+ * exists. By default the first two connections are picked.
+ */
+function fillConnectionSelects() {
+    const names = connections.map(c => c.name);
+    ['db-left', 'db-right'].forEach((id, index) => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        const previous = select.value;
+        select.innerHTML = names.length
+            ? names.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')
+            : '<option value="">No saved connections</option>';
+        select.value = names.includes(previous) ? previous : (names[index] || names[0] || '');
+    });
 }
 
 function testCell(name) {
@@ -66,8 +128,6 @@ function testCell(name) {
  */
 function renderConnections() {
     const tbody = document.getElementById('db-conn-table-body');
-    const saveBtn = document.getElementById('btn-db-conn-save');
-    if (saveBtn) saveBtn.disabled = busy;
     if (!tbody) return;
 
     if (connections.length === 0) {
@@ -132,9 +192,8 @@ async function saveConnection() {
  */
 async function testConnection(name) {
     if (busy || !name) return;
-    busy = true;
     lastTests[name] = { state: 'running' };
-    renderConnections();
+    setBusy(true);
     setStatus(`Testing ${name}...`, 'busy');
 
     try {
@@ -143,8 +202,7 @@ async function testConnection(name) {
         lastTests[name] = { ok: false, message: err.message };
     }
 
-    busy = false;
-    renderConnections();
+    setBusy(false);
     refreshLogConsole();
     if (lastTests[name].ok) {
         setStatus(`${name} connected`, 'success');
@@ -174,6 +232,181 @@ async function removeConnection(name) {
         await loadConnections();
     } catch (err) {
         showToast(`Could not remove the connection: ${err.message}`, 'error');
+    }
+}
+
+// ─── Compare ─────────────────────────────────────────────────────────────────
+
+/**
+ * Runs the compare for the picked connections and schema.
+ */
+async function runCompare() {
+    if (busy) return;
+    const left = valueOf('db-left');
+    const right = valueOf('db-right');
+    const schema = valueOf('db-schema').trim() || 'public';
+    if (!left || !right) {
+        showToast('Add and pick two connections first.', 'error');
+        return;
+    }
+    if (left === right) {
+        showToast('Pick two different connections.', 'error');
+        return;
+    }
+
+    setBusy(true);
+    setStatus(`Comparing ${left} with ${right}...`, 'busy');
+    const summary = document.getElementById('db-compare-summary');
+    if (summary) summary.textContent = `Reading ${left} and ${right}...`;
+
+    try {
+        const response = await window.api.runDbCompare(left, right, schema);
+        if (!response.success) {
+            throw new Error(response.message || 'Compare failed.');
+        }
+        lastResult = response.result;
+        fillFilterLabels();
+        renderCompare();
+        setStatus('Compare complete', 'success');
+        showToast(`${lastResult.rows.length} difference${lastResult.rows.length === 1 ? '' : 's'} found.`, lastResult.rows.length ? 'info' : 'success');
+    } catch (err) {
+        if (summary) summary.textContent = `Compare failed: ${err.message}`;
+        showToast(`Compare failed: ${err.message}`, 'error');
+        setStatus('Compare failed', 'error');
+    } finally {
+        setBusy(false);
+        refreshLogConsole();
+    }
+}
+
+/**
+ * After a compare: names the Only-in options and column headers after the
+ * two connections, and lists the apps found in the differences.
+ */
+function fillFilterLabels() {
+    if (!lastResult) return;
+    const statusSelect = document.getElementById('db-filter-status');
+    if (statusSelect) {
+        const leftOption = statusSelect.querySelector('option[value="only-left"]');
+        const rightOption = statusSelect.querySelector('option[value="only-right"]');
+        if (leftOption) leftOption.textContent = `Only in ${lastResult.left}`;
+        if (rightOption) rightOption.textContent = `Only in ${lastResult.right}`;
+    }
+    const leftHeader = document.getElementById('db-col-left');
+    const rightHeader = document.getElementById('db-col-right');
+    if (leftHeader) leftHeader.textContent = lastResult.left;
+    if (rightHeader) rightHeader.textContent = lastResult.right;
+
+    const appSelect = document.getElementById('db-filter-app');
+    if (appSelect) {
+        const previous = appSelect.value;
+        const apps = [...new Set(lastResult.rows.map(row => row.app))].sort();
+        appSelect.innerHTML = '<option value="">All apps</option>'
+            + apps.map(app => `<option value="${escapeHtml(app)}">${escapeHtml(app)}</option>`).join('');
+        appSelect.value = apps.includes(previous) ? previous : '';
+    }
+}
+
+/**
+ * The compare rows that match the Type / App / Difference filters.
+ */
+function filteredRows() {
+    if (!lastResult) return [];
+    const category = valueOf('db-filter-category');
+    const app = valueOf('db-filter-app');
+    const status = valueOf('db-filter-status');
+    return lastResult.rows.filter(row =>
+        (!category || row.category === category)
+        && (!app || row.app === app)
+        && (!status || row.status === status));
+}
+
+function statusBadge(status) {
+    if (status === 'only-left') return `<span class="badge badge-warning">Only in ${escapeHtml(lastResult.left)}</span>`;
+    if (status === 'only-right') return `<span class="badge badge-info">Only in ${escapeHtml(lastResult.right)}</span>`;
+    return '<span class="badge badge-error">Different</span>';
+}
+
+function summaryText(shownCount) {
+    const totals = lastResult.totals || {};
+    const counts = Object.keys(CATEGORY_LABELS)
+        .filter(category => totals[category])
+        .map(category => `${category} ${totals[category].left}/${totals[category].right}`)
+        .join(', ');
+    const total = lastResult.rows.length;
+    const shown = shownCount === total ? '' : ` (showing ${shownCount})`;
+    return `${lastResult.left} vs ${lastResult.right}, schema ${lastResult.schema}: ${total} difference${total === 1 ? '' : 's'}${shown}. Counts ${lastResult.left}/${lastResult.right}: ${counts}.`;
+}
+
+/**
+ * Draws the summary line and the differences table.
+ */
+function renderCompare() {
+    const tbody = document.getElementById('db-compare-body');
+    const summary = document.getElementById('db-compare-summary');
+    if (!lastResult || !tbody) return;
+
+    const rows = filteredRows();
+    if (summary) summary.textContent = summaryText(rows.length);
+
+    const cellStyle = 'max-width:320px;white-space:pre-wrap;word-break:break-word;font-size:11px;';
+    if (lastResult.rows.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="text-align:center;padding:24px;">
+                    <span class="badge badge-success">Same</span>
+                    <span class="text-muted">No differences found in schema ${escapeHtml(lastResult.schema)}.</span>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    if (rows.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="text-align:center;padding:24px;">
+                    <span class="text-muted">No differences match the filters.</span>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(row => `
+        <tr>
+            <td>${statusBadge(row.status)}</td>
+            <td>${escapeHtml(CATEGORY_LABELS[row.category] || row.category)}</td>
+            <td><span class="text-muted">${escapeHtml(row.app)}</span></td>
+            <td>${escapeHtml(row.table) || '<span class="text-muted">-</span>'}</td>
+            <td><strong>${escapeHtml(row.name)}</strong></td>
+            <td style="${cellStyle}">${escapeHtml(row.left) || '<span class="text-muted">-</span>'}</td>
+            <td style="${cellStyle}">${escapeHtml(row.right) || '<span class="text-muted">-</span>'}</td>
+        </tr>
+    `).join('');
+}
+
+/**
+ * Saves the rows currently shown to a CSV file in the Reports folder and
+ * opens that folder.
+ */
+async function exportCompare() {
+    if (busy || !lastResult) return;
+    try {
+        const response = await window.api.exportDbCompare({
+            left: lastResult.left,
+            right: lastResult.right,
+            schema: lastResult.schema,
+            rows: filteredRows()
+        });
+        if (!response.success) {
+            showToast(response.message || 'Could not export.', 'error');
+            return;
+        }
+        showToast(`Saved ${response.fileName} in the Reports folder.`, 'success');
+        refreshLogConsole();
+        window.api.openPath(response.folder);
+    } catch (err) {
+        showToast(`Could not export: ${err.message}`, 'error');
     }
 }
 })();

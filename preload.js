@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld('api', {
     saveDbConnection: (name, connectionString) => ipcRenderer.invoke('db:saveConnection', { name, connectionString }),
     removeDbConnection: (name) => ipcRenderer.invoke('db:removeConnection', { name }),
     testDbConnection: (name) => ipcRenderer.invoke('db:testConnection', { name }),
+    runDbCompare: (leftName, rightName, schema) => ipcRenderer.invoke('db:compare', { leftName, rightName, schema }),
+    exportDbCompare: (result) => ipcRenderer.invoke('db:exportCompare', { result }),
 
     // Settings Operations
     getSettings: () => ipcRenderer.invoke('settings:get'),

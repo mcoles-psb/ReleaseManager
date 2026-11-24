@@ -10,6 +10,7 @@ const RepositoryService = require('./services/repositoryService');
 const TagService = require('./services/tagService');
 const CoreSyncService = require('./services/coreSyncService');
 const DatabaseService = require('./services/databaseService');
+const DatabaseCompareService = require('./services/databaseCompareService');
 
 let mainWindow = null;
 let settingsService = null;
@@ -19,6 +20,7 @@ let repositoryService = null;
 let tagService = null;
 let coreSyncService = null;
 let databaseService = null;
+let databaseCompareService = null;
 
 let dataDir = null;
 
@@ -99,6 +101,7 @@ function initializeServices() {
     tagService = new TagService(gitService, logger);
     coreSyncService = new CoreSyncService(root, __dirname, settingsService, logger);
     databaseService = new DatabaseService(path.join(root, 'Config'), logger);
+    databaseCompareService = new DatabaseCompareService(databaseService, path.join(root, 'Reports'), logger);
 }
 
 /**
@@ -476,6 +479,32 @@ function registerIpcHandlers() {
      */
     ipcMain.handle('db:testConnection', async (event, { name }) => {
         return await databaseService.testConnection(String(name || ''));
+    });
+
+    /**
+     * Compares two saved connections' structure for one schema (read-only).
+     * Expects: { leftName, rightName, schema }
+     */
+    ipcMain.handle('db:compare', async (event, { leftName, rightName, schema }) => {
+        try {
+            const result = await databaseCompareService.compare(String(leftName || ''), String(rightName || ''), schema);
+            return { success: true, result };
+        } catch (err) {
+            logger.error(`Database compare failed: ${err.message}`);
+            return { success: false, message: err.message };
+        }
+    });
+
+    /**
+     * Writes compare rows to a CSV file in the Reports folder.
+     * Expects: { result } = { left, right, schema, rows }
+     */
+    ipcMain.handle('db:exportCompare', async (event, { result }) => {
+        try {
+            return { success: true, ...databaseCompareService.exportCsv(result) };
+        } catch (err) {
+            return { success: false, message: err.message };
+        }
     });
 
     // ── Settings Operations ─────────────────────────────────────────────────
