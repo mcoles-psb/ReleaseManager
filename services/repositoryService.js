@@ -18,10 +18,16 @@ class RepositoryService {
      * @param {GitService} gitService - The Git service for Git operations
      * @param {Logger} logger - The logger for logging operations
      */
-    constructor(gitService, logger) {
+    constructor(gitService, logger, configDir) {
         this.git = gitService;
         this.logger = logger;
-        this.configPath = path.join(__dirname, '..', 'Config', 'repositories.json');
+        // repositories.json is writable app state. The main process passes the
+        // Config directory from the data root (project folder in dev, userData
+        // when packaged). Fall back to the legacy location for safety.
+        this.configPath = path.join(
+            configDir || path.join(__dirname, '..', 'Config'),
+            'repositories.json'
+        );
     }
 
     /**

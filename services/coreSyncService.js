@@ -20,12 +20,15 @@ const simpleGit = require('simple-git');
  * the application log.
  */
 class CoreSyncService {
-    constructor(appRoot, settingsService, logger) {
+    constructor(dataDir, appRoot, settingsService, logger) {
+        this.dataDir = dataDir;
         this.appRoot = appRoot;
         this.settingsService = settingsService;
         this.logger = logger;
-        // Absolute, machine-specific paths: this file is git-ignored.
-        this.projectsFile = path.join(appRoot, 'Config', 'coreSyncProjects.json');
+        // Absolute, machine-specific paths: this file is git-ignored. It is
+        // writable app state, so it lives in the data directory (userData when
+        // packaged, the project folder in dev), not the install/app folder.
+        this.projectsFile = path.join(dataDir, 'Config', 'coreSyncProjects.json');
         // The script changes branches and pushes, so a folder may only have one
         // sync at a time. Different projects can sync at the same time.
         this.runningFolders = new Set();

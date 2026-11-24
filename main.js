@@ -18,6 +18,32 @@ let repositoryService = null;
 let tagService = null;
 let coreSyncService = null;
 
+let dataDir = null;
+
+/**
+ * Returns the folder that holds all writable application data
+ * (config, logs, bare mirror clones, reports).
+ *
+ * - Unpackaged (npm start): the project folder, so the existing
+ *   Config/ GitHubPromotion/ Logs/ layout keeps working.
+ * - Packaged (installed app): Electron's per-user data folder, because the
+ *   install directory (inside app.asar / Program Files) is read-only.
+ */
+function getDataDir() {
+    if (!dataDir) {
+        dataDir = app.isPackaged ? app.getPath('userData') : __dirname;
+    }
+    return dataDir;
+}
+
+/**
+ * Returns the absolute path to a repository's bare mirror clone.
+ */
+function getRepoPath(repoName) {
+    const cleanName = String(repoName).replace(/\.git$/, '');
+    return path.join(getDataDir(), 'GitHubPromotion', `${cleanName}.git`);
+}
+
 /**
  * Creates the main application window with a fixed size
  * and loads the index.html shell.
@@ -53,21 +79,23 @@ function createWindow() {
  * Ensures required directories exist before starting.
  */
 function initializeServices() {
+    const root = getDataDir();
+
     // Ensure required directories exist
     const dirs = ['Config', 'GitHubPromotion', 'Logs', 'Reports'];
     dirs.forEach(dir => {
-        const dirPath = path.join(__dirname, dir);
+        const dirPath = path.join(root, dir);
         if (!fs.existsSync(dirPath)) {
             fs.mkdirSync(dirPath, { recursive: true });
         }
     });
 
-    settingsService = new SettingsService(path.join(__dirname, 'Config'));
-    logger = new Logger(path.join(__dirname, 'Logs'));
-    gitService = new GitService(path.join(__dirname, 'GitHubPromotion'), logger);
-    repositoryService = new RepositoryService(gitService, logger);
+    settingsService = new SettingsService(path.join(root, 'Config'));
+    logger = new Logger(path.join(root, 'Logs'));
+    gitService = new GitService(path.join(root, 'GitHubPromotion'), logger);
+    repositoryService = new RepositoryService(gitService, logger, path.join(root, 'Config'));
     tagService = new TagService(gitService, logger);
-    coreSyncService = new CoreSyncService(__dirname, settingsService, logger);
+    coreSyncService = new CoreSyncService(root, __dirname, settingsService, logger);
 }
 
 /**
@@ -75,7 +103,7 @@ function initializeServices() {
  * Each repository is a bare Git mirror.
  */
 function getRepositories() {
-    const reposDir = path.join(__dirname, 'GitHubPromotion');
+    const reposDir = path.join(getDataDir(), 'GitHubPromotion');
     if (!fs.existsSync(reposDir)) {
         return [];
     }
@@ -187,7 +215,7 @@ function registerIpcHandlers() {
             const name = mirror.replace('.git', '');
             if (registered.has(name)) continue;
 
-            const repoPath = path.join(__dirname, 'GitHubPromotion', mirror);
+            const repoPath = path.join(getDataDir(), 'GitHubPromotion', mirror);
             try {
                 const remotes = await gitService.getRemotes(repoPath);
                 const devRepo = remotes.origin || '';
@@ -229,7 +257,7 @@ function registerIpcHandlers() {
     ipcMain.handle('branches:list', async (event, { repoName }) => {
         console.log('[main] branches:list received:', repoName);
         const cleanName = repoName.replace(/\.git$/, '');
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${cleanName}.git`);
+        const repoPath = getRepoPath(cleanName);
         const branches = await gitService.listBranches(repoPath);
         console.log('[main] branches:list returned:', branches);
         return branches;
@@ -243,7 +271,7 @@ function registerIpcHandlers() {
      * Process: git fetch origin, git push prod <branch>
      */
     ipcMain.handle('promote:branch', async (event, { repoName, branch }) => {
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repoName.replace(/\.git$/, '')}.git`);
+        const repoPath = getRepoPath(repoName);
         await repositoryService.promoteBranch(repoPath, branch);
         logger.info(`Promoted ${repoName} branch ${branch} to PROD`);
         return { success: true };
@@ -254,7 +282,7 @@ function registerIpcHandlers() {
      * Expects: { repoName, branches }
      */
     ipcMain.handle('promote:branches', async (event, { repoName, branches }) => {
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repoName.replace(/\.git$/, '')}.git`);
+        const repoPath = getRepoPath(repoName);
         for (const branch of branches) {
             await repositoryService.promoteBranch(repoPath, branch);
             logger.info(`Promoted ${repoName} branch ${branch} to PROD`);
@@ -270,7 +298,7 @@ function registerIpcHandlers() {
      * Expects: { repoName, branch, commitHash }
      */
     ipcMain.handle('revert:commit', async (event, { repoName, branch, commitHash }) => {
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repoName.replace(/\.git$/, '')}.git`);
+        const repoPath = getRepoPath(repoName);
         await repositoryService.revertCommit(repoPath, branch, commitHash);
         logger.info(`Reverted ${repoName} commit ${commitHash} on ${branch}`);
         return { success: true };
@@ -283,12 +311,12 @@ function registerIpcHandlers() {
      * Expects: { repoName, branch, maxCount }
      */
     ipcMain.handle('history:get', async (event, { repoName, branch, maxCount = 50 }) => {
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repoName.replace(/\.git$/, '')}.git`);
+        const repoPath = getRepoPath(repoName);
         return await repositoryService.getHistory(repoPath, branch, maxCount);
     });
 
     ipcMain.handle('history:getDev', async (event, { repoName, branch, maxCount = 50 }) => {
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repoName.replace(/\.git$/, '')}.git`);
+        const repoPath = getRepoPath(repoName);
         return await repositoryService.getDevHistory(repoPath, branch, maxCount);
     });
 
@@ -303,7 +331,7 @@ function registerIpcHandlers() {
     ipcMain.handle('compare:get', async (event, { repoName, branch }) => {
         console.log('[main] compare:get received:', { repoName, branch });
         const cleanName = repoName.replace(/\.git$/, '');
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${cleanName}.git`);
+        const repoPath = getRepoPath(cleanName);
         
         // Fetch both remotes first to ensure fresh comparison
         await gitService.fetchOrigin(repoPath);
@@ -325,7 +353,7 @@ function registerIpcHandlers() {
      * Expects: { repoName }
      */
     ipcMain.handle('tags:list', async (event, { repoName }) => {
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repoName.replace(/\.git$/, '')}.git`);
+        const repoPath = getRepoPath(repoName);
         return await tagService.listTags(repoPath);
     });
 
@@ -334,7 +362,7 @@ function registerIpcHandlers() {
      * Expects: { repoName, tagName, commitHash }
      */
     ipcMain.handle('tags:create', async (event, { repoName, tagName, commitHash }) => {
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repoName.replace(/\.git$/, '')}.git`);
+        const repoPath = getRepoPath(repoName);
         await tagService.createTag(repoPath, tagName, commitHash);
         logger.info(`Tag created and pushed: ${repoName} ${tagName}`);
         return { success: true };
@@ -345,7 +373,7 @@ function registerIpcHandlers() {
      * Expects: { repoName, tagName }
      */
     ipcMain.handle('tags:push', async (event, { repoName, tagName }) => {
-        const repoPath = path.join(__dirname, 'GitHubPromotion', `${repoName.replace(/\.git$/, '')}.git`);
+        const repoPath = getRepoPath(repoName);
         await tagService.pushTag(repoPath, tagName);
         logger.info(`Tag pushed to PROD: ${repoName} ${tagName}`);
         return { success: true };
@@ -448,7 +476,7 @@ function registerIpcHandlers() {
      * Expects: { target } (path to open)
      */
     ipcMain.handle('app:openPath', async (event, { target }) => {
-        const fullPath = path.resolve(__dirname, target);
+        const fullPath = path.resolve(getDataDir(), target);
         if (fs.existsSync(fullPath)) {
             const { shell } = require('electron');
             shell.openPath(fullPath);

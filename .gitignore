@@ -1,6 +1,8 @@
 node_modules/
 dist/
 Logs/
+Reports/
+GitHubPromotion/
 Config/settings.json
 Config/coreSyncProjects.json
 *.log
