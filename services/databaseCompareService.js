@@ -172,7 +172,14 @@ const QUERIES = [
             SELECT c.relname AS name, format_type(s.seqtypid, NULL) AS data_type,
                    s.seqstart::text AS start_value, s.seqincrement::text AS increment_by,
                    s.seqmin::text AS min_value, s.seqmax::text AS max_value,
-                   s.seqcache::text AS cache_size, s.seqcycle AS cycle
+                   s.seqcache::text AS cache_size, s.seqcycle AS cycle,
+                   -- The column that owns the sequence (as serial sets up), if any.
+                   (SELECT t.relname FROM pg_depend d JOIN pg_class t ON t.oid = d.refobjid
+                     WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'a'
+                       AND d.refclassid = 'pg_class'::regclass LIMIT 1) AS owned_table,
+                   (SELECT a.attname FROM pg_depend d JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid
+                     WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'a'
+                       AND d.refclassid = 'pg_class'::regclass LIMIT 1) AS owned_column
             FROM pg_sequence s
             JOIN pg_class c ON c.oid = s.seqrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace

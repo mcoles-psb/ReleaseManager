@@ -111,6 +111,9 @@ function buildScript(options) {
     const onlyTarget = [];
     const manual = [];
     let skipped = 0;
+    // Each sequence is added once, even when its own row and a table or
+    // column that uses it are both in the script.
+    const addedSequences = new Set();
 
     const isCode = (category) => category === 'functions' || category === 'triggers';
     const rowLabel = (row) => `${labels[row.category] || row.category}: ${row.table && row.table !== row.name ? `${row.table}.` : ''}${row.name}`;
@@ -202,6 +205,53 @@ function buildScript(options) {
         });
     }
 
+    function addSequence(raw) {
+        if (addedSequences.has(raw.name)) return;
+        addedSequences.add(raw.name);
+        addStep('sequences', `Add sequence ${raw.name}`, {
+            exists: has.relation(raw.name),
+            statements: [
+                `CREATE SEQUENCE ${qualified(raw.name)} AS ${raw.data_type}`
+                + ` INCREMENT BY ${raw.increment_by} MINVALUE ${raw.min_value} MAXVALUE ${raw.max_value}`
+                + ` START WITH ${raw.start_value} CACHE ${raw.cache_size}${raw.cycle ? ' CYCLE' : ' NO CYCLE'}`
+            ]
+        });
+    }
+
+    /**
+     * The source sequence a column's default takes its numbers from
+     * (nextval('name'::regclass)), or null when there is none in this schema.
+     */
+    function sequenceOf(column) {
+        const match = /nextval\('((?:[^']|'')+)'::regclass\)/.exec(String(column.default_value || ''));
+        if (!match) return null;
+        let name = match[1].replace(/''/g, "'");
+        for (const prefix of [`${schema}.`, `${qi(schema)}.`]) {
+            if (name.startsWith(prefix)) name = name.slice(prefix.length);
+        }
+        if (/^".*"$/.test(name)) name = name.slice(1, -1).replace(/""/g, '"');
+        const found = sourceItems.find(i => i.category === 'sequences' && i.raw.name === name);
+        return found ? found.raw : null;
+    }
+
+    /**
+     * Adds the sequences these columns take numbers from (they must exist
+     * before the table or column) and returns the statements that tie each one
+     * to its column, as on the source (what serial sets up: OWNED BY).
+     */
+    function sequencesFor(table, columns) {
+        const ownedBy = [];
+        columns.forEach(column => {
+            const sequence = sequenceOf(column);
+            if (!sequence) return;
+            addSequence(sequence);
+            if (sequence.owned_table === table && sequence.owned_column === column.column_name) {
+                ownedBy.push(`ALTER SEQUENCE ${qualified(sequence.name)} OWNED BY ${qualified(table)}.${qi(column.column_name)}`);
+            }
+        });
+        return ownedBy;
+    }
+
     function addNewTable(item) {
         const raw = item.raw;
         if (raw.kind === 'view' || raw.kind === 'materialized view') {
@@ -223,12 +273,14 @@ function buildScript(options) {
             .filter(i => i.category === category && i.table === raw.table_name)
             .map(i => i.raw);
         const columns = of('columns').sort((a, b) => a.attnum - b.attnum);
+        const ownedBy = sequencesFor(raw.table_name, columns);
         addStep('tables', `Add table ${raw.table_name}`, {
             exists: has.relation(raw.table_name),
             statements: [
                 `CREATE TABLE ${qualified(raw.table_name)} (\n`
                 + columns.map(column => `    ${columnDefinition(column, true)}`).join(',\n')
-                + '\n)'
+                + '\n)',
+                ...ownedBy
             ]
         });
         of('keys').forEach(addKey);
@@ -247,9 +299,10 @@ function buildScript(options) {
         // Required with no default would fail on a table that already has rows:
         // it is added as optional, then a separate step makes it required.
         const allowNotNull = Boolean(raw.default_value) || Boolean(raw.identity) || raw.generated === 's';
+        const ownedBy = sequencesFor(raw.table_name, [raw]);
         addStep('columns', `Add column ${raw.table_name}.${raw.column_name}`, {
             exists: has.column(raw.table_name, raw.column_name),
-            statements: [`ALTER TABLE ${qualified(raw.table_name)} ADD COLUMN ${columnDefinition(raw, allowNotNull)}`]
+            statements: [`ALTER TABLE ${qualified(raw.table_name)} ADD COLUMN ${columnDefinition(raw, allowNotNull)}`, ...ownedBy]
         });
         if (raw.not_null && !allowNotNull) addMakeRequired(raw.table_name, raw.column_name);
     }
@@ -271,14 +324,7 @@ function buildScript(options) {
                 break;
             }
             case 'sequences':
-                addStep('sequences', `Add sequence ${raw.name}`, {
-                    exists: has.relation(raw.name),
-                    statements: [
-                        `CREATE SEQUENCE ${qualified(raw.name)} AS ${raw.data_type}`
-                        + ` INCREMENT BY ${raw.increment_by} MINVALUE ${raw.min_value} MAXVALUE ${raw.max_value}`
-                        + ` START WITH ${raw.start_value} CACHE ${raw.cache_size}${raw.cycle ? ' CYCLE' : ' NO CYCLE'}`
-                    ]
-                });
+                addSequence(raw);
                 break;
             case 'tables':
                 addNewTable(item);
