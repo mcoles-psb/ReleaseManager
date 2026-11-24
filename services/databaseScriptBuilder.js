@@ -1,15 +1,24 @@
 /**
- * Builds a SQL script that adds to a TARGET database what a SOURCE database
- * has and the target is missing, from Database Compare results.
+ * Builds a SQL script that makes a TARGET database match a SOURCE database
+ * for the Database Compare rows shown. TEXT ONLY: Release Manager never runs it.
  *
- * The script is TEXT ONLY: Release Manager never runs it. It is written to be
- * safe to run more than once: every step checks first (IF NOT EXISTS, or a
- * one-off DO block that looks in the catalog). Nothing is ever removed.
- * Changes to things that already exist are written as commented-out REVIEW
- * notes with a read-only check to run first.
- *
- * DO $rm$ ... $rm$ blocks are anonymous: they run once and are not saved in
- * the database, so no stored functions are created by this script.
+ * How the script runs (Postgres, for example the Supabase SQL editor):
+ *  - It is ONE anonymous DO block, so it is all-or-nothing in any tool.
+ *    Nothing is stored in the database (no stored functions are created).
+ *  - PREVIEW by default (rm__apply := false): every step runs and is reported,
+ *    then everything is rolled back. The report is the error message, because
+ *    raising that error is what rolls the changes back.
+ *  - APPLY (rm__apply := true): the changes are kept only when no step FAILED.
+ *    The report is then shown as rows by the SELECT after the block.
+ *  - Each step runs in its own sub-transaction (BEGIN ... EXCEPTION): a step
+ *    that fails is undone and reported, and the other steps still run.
+ *  - Each step looks first: already done -> SKIPPED (safe to run twice).
+ *  - Data checks run before a change: if it would change, cut off or lose a
+ *    value, the step FAILS with the reason. A column that cannot be made
+ *    required yet (empty values) is a NOTE, which does not block the apply.
+ *  - Nothing is ever removed: no table, view or column is dropped. Keys,
+ *    indexes, policies and triggers that differ are dropped and re-created in
+ *    one step, so a failure puts the old one back.
  */
 
 // Script sections, in the order they must run.
@@ -17,7 +26,7 @@ const SECTIONS = [
     ['types', 'Types (enums and domains)'],
     ['sequences', 'Sequences'],
     ['tables', 'New tables'],
-    ['columns', 'New columns on existing tables'],
+    ['columns', 'Columns'],
     ['keys', 'Primary keys, unique and check rules'],
     ['foreignKeys', 'Foreign keys'],
     ['indexes', 'Indexes'],
@@ -53,16 +62,12 @@ function commented(text) {
     return String(text).split('\n').map(line => `-- ${line}`).join('\n');
 }
 
-/** Runs the statement only when the check query finds nothing. */
-function guarded(check, statement) {
-    return [
-        'DO $rm$',
-        'BEGIN',
-        `    IF NOT EXISTS (${check}) THEN`,
-        `        ${endStatement(statement).split('\n').join('\n        ')}`,
-        '    END IF;',
-        'END $rm$;'
-    ].join('\n');
+/** Wraps text in a dollar quote whose tag does not appear in the text. */
+function dollarQuote(text, base) {
+    for (let n = 0; ; n++) {
+        const tag = `$${base}${n ? n : ''}$`;
+        if (!text.includes(tag)) return `${tag}${text}${tag}`;
+    }
 }
 
 /** A commented-out REVIEW note: notes first, then the statements to uncomment. */
@@ -91,13 +96,17 @@ function buildScript(options) {
     const { schema, sourceName, targetName, sourceItems, targetItems, rows, missingStatus, includeFunctions, labels } = options;
 
     const qualified = (name) => `${qi(schema)}.${qi(name)}`;
-    const qualifiedLit = (name) => lit(qualified(name));
+    const regclass = (name) => `to_regclass(${lit(qualified(name))})`;
+    const procedure = (signature) => {
+        const open = signature.indexOf('(');
+        return `to_regprocedure(${lit(`${qi(schema)}.${qi(signature.slice(0, open))}${signature.slice(open)}`)})`;
+    };
     const byId = (items) => new Map(items.map(item => [`${item.category}|${item.key}`, item]));
     const sourceById = byId(sourceItems);
     const targetById = byId(targetItems);
 
-    const sections = {};
-    SECTIONS.forEach(([key]) => { sections[key] = []; });
+    const steps = {};
+    SECTIONS.forEach(([key]) => { steps[key] = []; });
     const review = [];
     const onlyTarget = [];
     const manual = [];
@@ -105,9 +114,30 @@ function buildScript(options) {
 
     const isCode = (category) => category === 'functions' || category === 'triggers';
     const rowLabel = (row) => `${labels[row.category] || row.category}: ${row.table && row.table !== row.name ? `${row.table}.` : ''}${row.name}`;
-    const typeCheck = (name) => `SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = ${lit(schema)} AND t.typname = ${lit(name)}`;
 
-    // ── Statements for things the target is missing ────────────────────────
+    // Catalog lookups that tell a step it is already done (it is then SKIPPED).
+    const has = {
+        type: (name) => `SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = ${lit(schema)} AND t.typname = ${lit(name)}`,
+        relation: (name) => `SELECT 1 WHERE ${regclass(name)} IS NOT NULL`,
+        column: (table, column, extra = '') => `SELECT 1 FROM pg_attribute a WHERE a.attrelid = ${regclass(table)} AND a.attname = ${lit(column)} AND NOT a.attisdropped${extra}`,
+        columnDefault: (table, column, expression) => `SELECT 1 FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum WHERE d.adrelid = ${regclass(table)} AND a.attname = ${lit(column)} AND pg_get_expr(d.adbin, d.adrelid) = ${lit(expression)}`,
+        constraint: (table, name, extra = '') => `SELECT 1 FROM pg_constraint c WHERE c.conrelid = ${regclass(table)} AND c.conname = ${lit(name)}${extra}`,
+        policy: (table, name, extra = '') => `SELECT 1 FROM pg_policies p WHERE p.schemaname = ${lit(schema)} AND p.tablename = ${lit(table)} AND p.policyname = ${lit(name)}${extra}`,
+        trigger: (table, name, extra = '') => `SELECT 1 FROM pg_trigger t WHERE t.tgrelid = ${regclass(table)} AND t.tgname = ${lit(name)}${extra}`,
+        rls: (table) => `SELECT 1 FROM pg_class c WHERE c.oid = ${regclass(table)} AND c.relrowsecurity`,
+        enumValue: (type, value) => `SELECT 1 FROM pg_enum e WHERE e.enumtypid = to_regtype(${lit(qualified(type))}) AND e.enumlabel = ${lit(value)}`
+    };
+
+    /**
+     * Adds a step. exists: query that finds it already done (SKIPPED).
+     * checks: [{ kind: 'fail' | 'note', when, message }] — when the query finds
+     * a row, 'fail' stops the step (FAILED) and 'note' leaves it (NOTE).
+     */
+    function addStep(section, label, { exists = null, checks = [], statements }) {
+        steps[section].push({ label, exists, checks, statements });
+    }
+
+    // ── Things the target is missing ───────────────────────────────────────
 
     function columnDefinition(raw, allowNotNull) {
         let sql = `${qi(raw.column_name)} ${raw.data_type}`;
@@ -120,16 +150,17 @@ function buildScript(options) {
     }
 
     function addKey(raw) {
-        const statement = guarded(
-            `SELECT 1 FROM pg_constraint WHERE conrelid = ${qualifiedLit(raw.table_name)}::regclass AND conname = ${lit(raw.name)}`,
-            `ALTER TABLE ${qualified(raw.table_name)} ADD CONSTRAINT ${qi(raw.name)} ${raw.definition}`
-        );
-        sections[raw.kind === 'foreign key' ? 'foreignKeys' : 'keys'].push(statement);
+        addStep(raw.kind === 'foreign key' ? 'foreignKeys' : 'keys', `Add ${raw.kind} ${raw.name} on ${raw.table_name}`, {
+            exists: has.constraint(raw.table_name, raw.name),
+            statements: [`ALTER TABLE ${qualified(raw.table_name)} ADD CONSTRAINT ${qi(raw.name)} ${raw.definition}`]
+        });
     }
 
     function addIndex(raw) {
-        sections.indexes.push(endStatement(String(raw.definition)
-            .replace(/^CREATE (UNIQUE )?INDEX /, (match, unique) => `CREATE ${unique || ''}INDEX IF NOT EXISTS `)));
+        addStep('indexes', `Add index ${raw.name} on ${raw.table_name}`, {
+            exists: has.relation(raw.name),
+            statements: [raw.definition]
+        });
     }
 
     function policyStatement(raw) {
@@ -140,10 +171,10 @@ function buildScript(options) {
     }
 
     function addPolicy(raw) {
-        sections.policies.push(guarded(
-            `SELECT 1 FROM pg_policies WHERE schemaname = ${lit(schema)} AND tablename = ${lit(raw.table_name)} AND policyname = ${lit(raw.name)}`,
-            policyStatement(raw)
-        ));
+        addStep('policies', `Add policy ${raw.name} on ${raw.table_name}`, {
+            exists: has.policy(raw.table_name, raw.name),
+            statements: [policyStatement(raw)]
+        });
     }
 
     function addTrigger(raw) {
@@ -151,20 +182,34 @@ function buildScript(options) {
             skipped++;
             return;
         }
-        sections.triggers.push(guarded(
-            `SELECT 1 FROM pg_trigger WHERE tgrelid = ${qualifiedLit(raw.table_name)}::regclass AND tgname = ${lit(raw.name)}`,
-            raw.definition
-        ));
+        addStep('triggers', `Add trigger ${raw.name} on ${raw.table_name}`, {
+            exists: has.trigger(raw.table_name, raw.name),
+            statements: [raw.definition]
+        });
+    }
+
+    // A required column that may hold empty values: made required only when
+    // it has none, otherwise left as a NOTE (does not block the apply).
+    function addMakeRequired(table, column) {
+        addStep('columns', `Make ${table}.${column} required`, {
+            exists: has.column(table, column, ' AND a.attnotnull'),
+            checks: [{
+                kind: 'note',
+                when: `SELECT 1 FROM ${qualified(table)} WHERE ${qi(column)} IS NULL`,
+                message: 'some rows have no value yet, so it is not made required. Fill them in, then run the script again.'
+            }],
+            statements: [`ALTER TABLE ${qualified(table)} ALTER COLUMN ${qi(column)} SET NOT NULL`]
+        });
     }
 
     function addNewTable(item) {
         const raw = item.raw;
-        if (raw.kind === 'view') {
-            sections.views.push(`CREATE OR REPLACE VIEW ${qualified(raw.table_name)} AS\n${trimSql(raw.view_definition)};`);
-            return;
-        }
-        if (raw.kind === 'materialized view') {
-            sections.views.push(`CREATE MATERIALIZED VIEW IF NOT EXISTS ${qualified(raw.table_name)} AS\n${trimSql(raw.view_definition)};`);
+        if (raw.kind === 'view' || raw.kind === 'materialized view') {
+            const create = raw.kind === 'view' ? 'CREATE OR REPLACE VIEW' : 'CREATE MATERIALIZED VIEW';
+            addStep('views', `Add ${raw.kind} ${raw.table_name}`, {
+                exists: has.relation(raw.table_name),
+                statements: [`${create} ${qualified(raw.table_name)} AS\n${trimSql(raw.view_definition)}`]
+            });
             return;
         }
         if (raw.kind !== 'table') {
@@ -178,55 +223,62 @@ function buildScript(options) {
             .filter(i => i.category === category && i.table === raw.table_name)
             .map(i => i.raw);
         const columns = of('columns').sort((a, b) => a.attnum - b.attnum);
-        sections.tables.push(
-            `CREATE TABLE IF NOT EXISTS ${qualified(raw.table_name)} (\n`
-            + columns.map(column => `    ${columnDefinition(column, true)}`).join(',\n')
-            + '\n);'
-        );
+        addStep('tables', `Add table ${raw.table_name}`, {
+            exists: has.relation(raw.table_name),
+            statements: [
+                `CREATE TABLE ${qualified(raw.table_name)} (\n`
+                + columns.map(column => `    ${columnDefinition(column, true)}`).join(',\n')
+                + '\n)'
+            ]
+        });
         of('keys').forEach(addKey);
         of('indexes').forEach(addIndex);
         if (raw.rls_enabled) {
-            sections.rls.push(`ALTER TABLE ${qualified(raw.table_name)} ENABLE ROW LEVEL SECURITY;`);
+            addStep('rls', `Turn on row level security for ${raw.table_name}`, {
+                exists: has.rls(raw.table_name),
+                statements: [`ALTER TABLE ${qualified(raw.table_name)} ENABLE ROW LEVEL SECURITY`]
+            });
         }
         of('policies').forEach(addPolicy);
         of('triggers').forEach(addTrigger);
     }
 
     function addNewColumn(raw) {
-        // Required with no default would fail on a table that already has rows,
-        // so it is added as optional and SET NOT NULL becomes a REVIEW note.
+        // Required with no default would fail on a table that already has rows:
+        // it is added as optional, then a separate step makes it required.
         const allowNotNull = Boolean(raw.default_value) || Boolean(raw.identity) || raw.generated === 's';
-        sections.columns.push(`ALTER TABLE ${qualified(raw.table_name)} ADD COLUMN IF NOT EXISTS ${columnDefinition(raw, allowNotNull)};`);
-        if (raw.not_null && !allowNotNull) {
-            review.push(reviewNote(`column ${raw.table_name}.${raw.column_name} is required on ${sourceName}`, [
-                'It is added above as optional, because the table may already have rows.',
-                `Fill it in, then check (read-only, must be 0): SELECT count(*) FROM ${qualified(raw.table_name)} WHERE ${qi(raw.column_name)} IS NULL;`,
-                'Then uncomment to make it required:'
-            ], [`ALTER TABLE ${qualified(raw.table_name)} ALTER COLUMN ${qi(raw.column_name)} SET NOT NULL;`]));
-        }
+        addStep('columns', `Add column ${raw.table_name}.${raw.column_name}`, {
+            exists: has.column(raw.table_name, raw.column_name),
+            statements: [`ALTER TABLE ${qualified(raw.table_name)} ADD COLUMN ${columnDefinition(raw, allowNotNull)}`]
+        });
+        if (raw.not_null && !allowNotNull) addMakeRequired(raw.table_name, raw.column_name);
     }
 
     function addMissing(item) {
         const raw = item.raw;
         switch (item.category) {
-            case 'types':
+            case 'types': {
+                let statement;
                 if (raw.kind === 'enum') {
-                    const values = (raw.enum_values || []).map(lit).join(', ');
-                    sections.types.push(guarded(typeCheck(raw.name), `CREATE TYPE ${qualified(raw.name)} AS ENUM (${values})`));
+                    statement = `CREATE TYPE ${qualified(raw.name)} AS ENUM (${(raw.enum_values || []).map(lit).join(', ')})`;
                 } else {
-                    let sql = `CREATE DOMAIN ${qualified(raw.name)} AS ${raw.base_type}`;
-                    if (raw.default_value) sql += ` DEFAULT ${raw.default_value}`;
-                    if (raw.not_null) sql += ' NOT NULL';
-                    if (raw.checks) sql += ` ${raw.checks}`;
-                    sections.types.push(guarded(typeCheck(raw.name), sql));
+                    statement = `CREATE DOMAIN ${qualified(raw.name)} AS ${raw.base_type}`;
+                    if (raw.default_value) statement += ` DEFAULT ${raw.default_value}`;
+                    if (raw.not_null) statement += ' NOT NULL';
+                    if (raw.checks) statement += ` ${raw.checks}`;
                 }
+                addStep('types', `Add ${raw.kind} type ${raw.name}`, { exists: has.type(raw.name), statements: [statement] });
                 break;
+            }
             case 'sequences':
-                sections.sequences.push(
-                    `CREATE SEQUENCE IF NOT EXISTS ${qualified(raw.name)} AS ${raw.data_type}`
-                    + ` INCREMENT BY ${raw.increment_by} MINVALUE ${raw.min_value} MAXVALUE ${raw.max_value}`
-                    + ` START WITH ${raw.start_value} CACHE ${raw.cache_size}${raw.cycle ? ' CYCLE' : ' NO CYCLE'};`
-                );
+                addStep('sequences', `Add sequence ${raw.name}`, {
+                    exists: has.relation(raw.name),
+                    statements: [
+                        `CREATE SEQUENCE ${qualified(raw.name)} AS ${raw.data_type}`
+                        + ` INCREMENT BY ${raw.increment_by} MINVALUE ${raw.min_value} MAXVALUE ${raw.max_value}`
+                        + ` START WITH ${raw.start_value} CACHE ${raw.cache_size}${raw.cycle ? ' CYCLE' : ' NO CYCLE'}`
+                    ]
+                });
                 break;
             case 'tables':
                 addNewTable(item);
@@ -247,45 +299,80 @@ function buildScript(options) {
                 addTrigger(raw);
                 break;
             case 'functions':
-                sections.functions.push(endStatement(raw.definition));
+                addStep('functions', `Add ${raw.kind} ${raw.signature}`, {
+                    exists: `SELECT 1 WHERE ${procedure(raw.signature)} IS NOT NULL`,
+                    statements: [raw.definition]
+                });
                 break;
             default:
                 manual.push(`-- ${labels[item.category] || item.category}: ${item.name}: not scripted, add it by hand.`);
         }
     }
 
-    // ── REVIEW notes for things that exist on both sides but differ ────────
+    // ── Things that exist on both sides but differ ─────────────────────────
 
-    function columnReview(src, tgt) {
+    function addColumnChanges(src, tgt) {
         const s = src.raw;
         const t = tgt.raw;
-        const where = qualified(s.table_name);
-        const col = qi(s.column_name);
-        const notes = [`source (${sourceName}): ${src.display}`, `target (${targetName}): ${tgt.display}`];
-        const statements = [];
+        const table = s.table_name;
+        const column = s.column_name;
+        const where = qualified(table);
+        const col = qi(column);
+        const name = `${table}.${column}`;
+        const head = [`source (${sourceName}): ${src.display}`, `target (${targetName}): ${tgt.display}`];
+
+        if (!s.not_null && t.not_null) {
+            addStep('columns', `Make ${name} optional`, {
+                exists: has.column(table, column, ' AND NOT a.attnotnull'),
+                statements: [`ALTER TABLE ${where} ALTER COLUMN ${col} DROP NOT NULL`]
+            });
+        }
 
         if (s.data_type !== t.data_type) {
-            notes.push(`Type differs. Check first (read-only, fails if a value does not fit): SELECT count(${col}::${s.data_type}) FROM ${where};`);
-            statements.push(`ALTER TABLE ${where} ALTER COLUMN ${col} TYPE ${s.data_type} USING ${col}::${s.data_type};`);
+            if (s.generated === 's' || t.generated === 's') {
+                review.push(reviewNote(`column ${name}`, [...head, 'A generated column changes type: change it by hand.'], []));
+            } else {
+                // A default that cannot follow the new type would block it: it is
+                // taken off, the type changed, and the default put back.
+                const hasDefault = Boolean(t.default_value) && !t.identity;
+                const statements = [];
+                if (hasDefault) statements.push(`ALTER TABLE ${where} ALTER COLUMN ${col} DROP DEFAULT`);
+                statements.push(`ALTER TABLE ${where} ALTER COLUMN ${col} TYPE ${s.data_type} USING ${col}::${s.data_type}`);
+                if (hasDefault) statements.push(`ALTER TABLE ${where} ALTER COLUMN ${col} SET DEFAULT ${t.default_value}`);
+                addStep('columns', `Change ${name} from ${t.data_type} to ${s.data_type}`, {
+                    exists: has.column(table, column, ` AND format_type(a.atttypid, a.atttypmod) = ${lit(s.data_type)}`),
+                    checks: [{
+                        kind: 'fail',
+                        // Every value is converted to the new type and back: if any
+                        // comes back different, it would be rounded or cut off.
+                        when: `SELECT 1 FROM ${where} WHERE ${col} IS NOT NULL AND (${col}::${s.data_type})::${t.data_type} IS DISTINCT FROM ${col}`,
+                        message: `${name}: some values would change, be cut off or not fit in ${s.data_type}. Nothing was changed.`
+                    }],
+                    statements
+                });
+            }
         }
-        if (s.not_null && !t.not_null) {
-            notes.push(`Required on the source. Check first (read-only, must be 0): SELECT count(*) FROM ${where} WHERE ${col} IS NULL;`);
-            statements.push(`ALTER TABLE ${where} ALTER COLUMN ${col} SET NOT NULL;`);
-        }
-        if (!s.not_null && t.not_null) {
-            statements.push(`ALTER TABLE ${where} ALTER COLUMN ${col} DROP NOT NULL;`);
-        }
+
         const plainDefault = (raw) => (raw.identity || raw.generated === 's') ? '' : (raw.default_value || '');
-        if (plainDefault(s) !== plainDefault(t)) {
-            statements.push(plainDefault(s)
-                ? `ALTER TABLE ${where} ALTER COLUMN ${col} SET DEFAULT ${s.default_value};`
-                : `ALTER TABLE ${where} ALTER COLUMN ${col} DROP DEFAULT;`);
+        if (plainDefault(s) !== plainDefault(t) && !s.identity && s.generated !== 's') {
+            if (plainDefault(s)) {
+                addStep('columns', `Set the default of ${name} to ${s.default_value}`, {
+                    exists: has.columnDefault(table, column, s.default_value),
+                    statements: [`ALTER TABLE ${where} ALTER COLUMN ${col} SET DEFAULT ${s.default_value}`]
+                });
+            } else {
+                addStep('columns', `Remove the default of ${name}`, {
+                    exists: has.column(table, column, ' AND NOT a.atthasdef'),
+                    statements: [`ALTER TABLE ${where} ALTER COLUMN ${col} DROP DEFAULT`]
+                });
+            }
         }
+
+        if (s.not_null && !t.not_null) addMakeRequired(table, column);
+
         if ((s.identity || '') !== (t.identity || '') || (s.generated || '') !== (t.generated || '')) {
-            notes.push('Identity / generated setting differs: change it by hand.');
+            review.push(reviewNote(`column ${name}`, [...head, 'Identity / generated setting differs: change it by hand.'], []));
         }
-        if (statements.length) notes.push('Uncomment the lines you want:');
-        return reviewNote(`column ${s.table_name}.${s.column_name}`, notes, statements);
     }
 
     function addDifferent(src, tgt) {
@@ -298,9 +385,11 @@ function buildScript(options) {
                 if (s.kind === 'enum' && t.kind === 'enum') {
                     const sourceValues = s.enum_values || [];
                     const targetValues = t.enum_values || [];
-                    // Adding enum values is safe: it never changes existing rows.
                     const missing = sourceValues.filter(value => !targetValues.includes(value));
-                    missing.forEach(value => sections.types.push(`ALTER TYPE ${qualified(s.name)} ADD VALUE IF NOT EXISTS ${lit(value)};`));
+                    missing.forEach(value => addStep('types', `Add value ${value} to type ${s.name}`, {
+                        exists: has.enumValue(s.name, value),
+                        statements: [`ALTER TYPE ${qualified(s.name)} ADD VALUE ${lit(value)}`]
+                    }));
                     const extra = targetValues.filter(value => !sourceValues.includes(value));
                     if (extra.length) {
                         review.push(reviewNote(`type ${s.name}`, [...head, `Values only on the target (left as they are): ${extra.join(', ')}`], []));
@@ -313,11 +402,16 @@ function buildScript(options) {
                 return;
             }
             case 'tables': {
-                const notes = [...head];
-                const statements = [];
                 if (s.kind === 'view' && t.kind === 'view' && (s.view_definition || '') !== (t.view_definition || '')) {
-                    notes.push('The view definition differs. Uncomment to use the source definition:');
-                    statements.push(`CREATE OR REPLACE VIEW ${qualified(s.table_name)} AS\n${trimSql(s.view_definition)};`);
+                    addStep('views', `Update view ${s.table_name}`, {
+                        exists: `SELECT 1 WHERE pg_get_viewdef(${regclass(s.table_name)}, true) = ${lit(s.view_definition)}`,
+                        statements: [`CREATE OR REPLACE VIEW ${qualified(s.table_name)} AS\n${trimSql(s.view_definition)}`]
+                    });
+                }
+                const notes = [];
+                const statements = [];
+                if (s.kind === 'materialized view' && t.kind === 'materialized view' && (s.view_definition || '') !== (t.view_definition || '')) {
+                    notes.push('The materialized view definition differs. It holds data, so drop and re-create it by hand.');
                 }
                 if (s.rls_enabled && !t.rls_enabled) {
                     notes.push('RLS is on in the source only. Turning it on blocks app users that no policy allows (the service key is not affected). Uncomment to apply:');
@@ -325,40 +419,49 @@ function buildScript(options) {
                 }
                 if (!s.rls_enabled && t.rls_enabled) notes.push('RLS is on in the target only: left as it is.');
                 if (s.kind !== t.kind) notes.push('One side is a table and the other a view: change it by hand.');
-                review.push(reviewNote(`${s.kind} ${s.table_name}`, notes, statements));
+                if (notes.length) review.push(reviewNote(`${s.kind} ${s.table_name}`, [...head, ...notes], statements));
                 return;
             }
             case 'columns':
-                review.push(columnReview(src, tgt));
+                addColumnChanges(src, tgt);
                 return;
             case 'keys':
-                review.push(reviewNote(`key ${s.table_name}.${s.name}`, [...head, 'Check that the existing rows meet the source rule, then uncomment to replace it:'], [
-                    `ALTER TABLE ${qualified(s.table_name)} DROP CONSTRAINT ${qi(s.name)};`,
-                    `ALTER TABLE ${qualified(s.table_name)} ADD CONSTRAINT ${qi(s.name)} ${s.definition};`
-                ]));
+                // Dropped and re-created in one step: if the rows do not meet the
+                // source rule, the step fails and the old rule is put back.
+                addStep(s.kind === 'foreign key' ? 'foreignKeys' : 'keys', `Replace ${s.kind} ${s.name} on ${s.table_name}`, {
+                    exists: has.constraint(s.table_name, s.name, ` AND pg_get_constraintdef(c.oid) = ${lit(s.definition)}`),
+                    statements: [
+                        `ALTER TABLE ${qualified(s.table_name)} DROP CONSTRAINT ${qi(s.name)}`,
+                        `ALTER TABLE ${qualified(s.table_name)} ADD CONSTRAINT ${qi(s.name)} ${s.definition}`
+                    ]
+                });
                 return;
             case 'indexes':
-                review.push(reviewNote(`index ${s.name}`, [...head, 'Uncomment to rebuild it like the source:'], [
-                    `DROP INDEX IF EXISTS ${qualified(s.name)};`,
-                    endStatement(s.definition)
-                ]));
+                addStep('indexes', `Replace index ${s.name} on ${s.table_name}`, {
+                    exists: `SELECT 1 WHERE pg_get_indexdef(${regclass(s.name)}) = ${lit(s.definition)}`,
+                    statements: [`DROP INDEX ${qualified(s.name)}`, s.definition]
+                });
                 return;
             case 'policies':
-                review.push(reviewNote(`policy ${s.table_name}.${s.name}`, [...head, 'Uncomment to replace it with the source policy:'], [
-                    `DROP POLICY IF EXISTS ${qi(s.name)} ON ${qualified(s.table_name)};`,
-                    endStatement(policyStatement(s))
-                ]));
+                addStep('policies', `Replace policy ${s.name} on ${s.table_name}`, {
+                    exists: has.policy(s.table_name, s.name,
+                        ` AND p.permissive = ${lit(s.permissive)} AND p.cmd = ${lit(s.cmd)}`
+                        + ` AND array_to_string(p.roles, ', ') = ${lit(s.roles)}`
+                        + ` AND coalesce(p.qual, '') = ${lit(s.qual || '')} AND coalesce(p.with_check, '') = ${lit(s.with_check || '')}`),
+                    statements: [`DROP POLICY ${qi(s.name)} ON ${qualified(s.table_name)}`, policyStatement(s)]
+                });
                 return;
             case 'triggers':
-                review.push(reviewNote(`trigger ${s.table_name}.${s.name}`, [...head, 'Uncomment to replace it with the source trigger:'], [
-                    `DROP TRIGGER IF EXISTS ${qi(s.name)} ON ${qualified(s.table_name)};`,
-                    endStatement(s.definition)
-                ]));
+                addStep('triggers', `Replace trigger ${s.name} on ${s.table_name}`, {
+                    exists: has.trigger(s.table_name, s.name, ` AND pg_get_triggerdef(t.oid) = ${lit(s.definition)}`),
+                    statements: [`DROP TRIGGER ${qi(s.name)} ON ${qualified(s.table_name)}`, s.definition]
+                });
                 return;
             case 'functions':
-                review.push(reviewNote(`function ${s.signature}`, [...head, 'The body differs. Uncomment to replace it with the source version:'], [
-                    endStatement(s.definition)
-                ]));
+                addStep('functions', `Update ${s.kind} ${s.signature}`, {
+                    exists: `SELECT 1 WHERE pg_get_functiondef(${procedure(s.signature)}) = ${lit(s.definition)}`,
+                    statements: [s.definition]
+                });
                 return;
             default:
                 review.push(reviewNote(`${labels[src.category] || src.category} ${src.name}`, [...head, 'Change it by hand.'], []));
@@ -386,40 +489,123 @@ function buildScript(options) {
 
     // ── Write the script ───────────────────────────────────────────────────
 
-    const liveCount = SECTIONS.reduce((count, [key]) => count + sections[key].length, 0);
+    /** One step as PL/pgSQL, in its own sub-transaction. */
+    function renderStep(step, number) {
+        const label = lit(step.label);
+        const report = (result, extra) =>
+            `rm__report := rm__report || format(E'\\n%s. %s %s', rm__step, rpad(${lit(result)}, 8), ${label}${extra ? ` || ${extra}` : ''});`;
+
+        const branches = [];
+        if (step.exists) {
+            branches.push({ when: step.exists, body: [report('SKIPPED', lit(' (already done)'))] });
+        }
+        step.checks.filter(check => check.kind === 'note').forEach(check => {
+            branches.push({ when: check.when, body: ['rm__notes := rm__notes + 1;', report('NOTE', lit(`: ${check.message}`))] });
+        });
+
+        const work = [];
+        step.checks.filter(check => check.kind === 'fail').forEach(check => {
+            work.push(`IF EXISTS (${check.when}) THEN`, `    RAISE EXCEPTION USING MESSAGE = ${lit(check.message)};`, 'END IF;');
+        });
+        // EXECUTE runs each statement exactly as written (no variable swaps).
+        step.statements.forEach(statement => work.push(`EXECUTE ${dollarQuote(trimSql(statement), 'rm_sql')};`));
+        work.push(report('OK'));
+
+        const inner = [];
+        if (branches.length) {
+            branches.forEach((branch, index) => {
+                inner.push(`${index === 0 ? 'IF' : 'ELSIF'} EXISTS (${branch.when}) THEN`, ...branch.body.map(line => `    ${line}`));
+            });
+            inner.push('ELSE', ...work.map(line => `    ${line}`), 'END IF;');
+        } else {
+            inner.push(...work);
+        }
+
+        // Only each line's start is indented: a statement's own text (a view or
+        // function body) stays exactly as it is.
+        return [
+            `    -- Step ${number}: ${step.label}`,
+            `    rm__step := ${number};`,
+            '    BEGIN',
+            ...inner.map(line => `        ${line}`),
+            '    EXCEPTION WHEN OTHERS THEN',
+            '        rm__failed := rm__failed + 1;',
+            `        ${report('FAILED', "': ' || SQLERRM")}`,
+            '    END;'
+        ].join('\n');
+    }
+
+    const liveCount = SECTIONS.reduce((count, [key]) => count + steps[key].length, 0);
     const out = [
         '-- ============================================================================',
         '-- Release Manager - Database Compare script',
         `-- Source: ${sourceName}    Target: ${targetName}    Schema: ${schema}`,
         `-- Built: ${new Date().toISOString()} from ${rows.length} row${rows.length === 1 ? '' : 's'} shown on the page`,
         '--',
-        `-- Adds to ${targetName} what ${sourceName} has and ${targetName} is missing.`,
-        '-- Nothing is removed. Every step checks first, so the script is safe to run',
-        '-- more than once. It runs as one transaction: if any step fails, nothing is',
-        '-- applied. Release Manager never runs this script: review it, then run it on',
-        `-- ${targetName} yourself (for example in the Supabase SQL editor).`,
-        '-- REVIEW notes at the end are changes to things that already exist. They are',
-        '-- commented out: run their checks first, then uncomment what you want.'
+        `-- Makes ${targetName} match ${sourceName} for the rows shown. Release Manager never runs this.`,
+        '--',
+        `-- HOW TO RUN (on ${targetName}, for example in the Supabase SQL editor):`,
+        '--   1. PREVIEW: run it as it is. Every step runs, then EVERYTHING IS ROLLED BACK.',
+        '--      The report comes back as the error message "PREVIEW ONLY: ...":',
+        '--      that error is what undoes the changes.',
+        '--   2. APPLY: if the report looks right, change  rm__apply boolean := false',
+        '--      to true (a few lines below) and run it again. The changes are kept',
+        '--      only if no step FAILED; the report is then shown as rows.',
+        '--',
+        '-- Report: OK = done. SKIPPED = already done. NOTE = left for you, does not',
+        '-- block the apply. FAILED = undone, blocks the apply (the reason is shown).',
+        '-- Nothing is ever removed: no table, view or column is dropped.'
     ];
     if (skipped) {
-        out.push('--', `-- Skipped ${skipped} function/trigger item${skipped === 1 ? '' : 's'} (tick "Include functions and triggers" to add them).`);
+        out.push(`-- Skipped ${skipped} function/trigger item${skipped === 1 ? '' : 's'} (tick "Include functions and triggers" to add them).`);
     }
     out.push('-- ============================================================================');
 
     if (liveCount === 0) {
-        out.push('', `-- Nothing to add: ${targetName} already has everything in the rows shown.`);
+        out.push('', `-- Nothing to do: ${targetName} already has everything in the rows shown, or only REVIEW notes are left.`);
     } else {
-        out.push('', 'BEGIN;');
+        const body = [
+            'DECLARE',
+            '    rm__apply  boolean := false;   -- false = PREVIEW (everything is rolled back), true = APPLY',
+            '    rm__step   integer := 0;',
+            '    rm__failed integer := 0;',
+            '    rm__notes  integer := 0;',
+            "    rm__report text    := '';",
+            'BEGIN'
+        ];
         let number = 0;
+        let sectionNumber = 0;
         SECTIONS.forEach(([key, title]) => {
-            if (!sections[key].length) return;
-            number++;
-            out.push('', `-- ── ${number}. ${title} ──`, '', sections[key].join('\n\n'));
+            if (!steps[key].length) return;
+            sectionNumber++;
+            body.push('', `    -- ── ${sectionNumber}. ${title} ──`);
+            steps[key].forEach(step => {
+                number++;
+                body.push('', renderStep(step, number));
+            });
         });
-        out.push('', 'COMMIT;');
+        body.push(
+            '',
+            '    -- ── Finish: keep the changes only when applying and nothing failed ──',
+            '    IF NOT rm__apply THEN',
+            "        RAISE EXCEPTION USING MESSAGE = format('PREVIEW ONLY: every step ran, then everything was rolled back (%s failed, %s notes). If the report looks right, set rm__apply to true at the top and run the script again.', rm__failed, rm__notes) || rm__report;",
+            '    ELSIF rm__failed > 0 THEN',
+            "        RAISE EXCEPTION USING MESSAGE = format('NOT APPLIED: %s step(s) failed, so everything was rolled back. See the report.', rm__failed) || rm__report;",
+            '    END IF;',
+            "    PERFORM set_config('rm.report', format('APPLIED: every step succeeded and the changes are kept (%s notes).', rm__notes) || rm__report, false);",
+            'END'
+        );
+        out.push(
+            '',
+            `DO ${dollarQuote(`\n${body.join('\n')}\n`, 'rm_do')};`,
+            '',
+            '-- Shown only after an APPLY that succeeded: the report, one row per line.',
+            "SELECT line AS report FROM unnest(string_to_array(current_setting('rm.report', true), E'\\n')) AS line;"
+        );
     }
+
     if (review.length) {
-        out.push('', '-- ════ REVIEW: changes to things that already exist (not run) ════', '', review.join('\n\n'));
+        out.push('', '-- ════ REVIEW: not in the steps above, decide by hand (nothing here runs) ════', '', review.join('\n\n'));
     }
     if (manual.length) {
         out.push('', '-- ════ NOT SCRIPTED: add these by hand ════', '', ...manual);

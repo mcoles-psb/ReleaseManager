@@ -477,7 +477,7 @@ function showScript(response) {
             `${plural(response.onlyTargetCount, 'item')} only in ${response.targetName} (not removed)`
         ];
         if (response.skipped) parts.push(`${plural(response.skipped, 'function/trigger item')} skipped`);
-        summary.textContent = `${parts.join(', ')}. Release Manager does not run it: review it, then run it on ${response.targetName} yourself.`;
+        summary.textContent = `${parts.join(', ')}. Release Manager does not run it. Run it on ${response.targetName} yourself: as it is, it is a PREVIEW (every step runs and is reported, then everything is rolled back); set rm__apply to true at its top to APPLY.`;
     }
     text.value = response.script;
     panel.classList.remove('hidden');
